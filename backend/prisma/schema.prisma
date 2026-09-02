@@ -1,0 +1,353 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum Role {
+  ADMIN
+  STOREKEEPER
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  DISCONTINUED
+}
+
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum MovementType {
+  STOCK_IN
+  STOCK_OUT
+  ADJUSTMENT
+  DAMAGE
+  RETURN
+}
+
+enum AdjustmentType {
+  INCREASE
+  DECREASE
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+// ============================================
+// MODELS
+// ============================================
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  fullName     String
+  role         Role
+  status       UserStatus @default(ACTIVE)
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Relationships
+  stockMovements   StockMovement[]   @relation("StockMovementCreator")
+  auditLogs        AuditLog[]        @relation("AuditLogCreator")
+  purchaseOrders   PurchaseOrder[]   @relation("POCreator")
+  approvedOrders   PurchaseOrder[]   @relation("POApprover")
+  goodsReceipts    GoodsReceipt[]    @relation("GoodsReceiptReceiver")
+  adjustments      StockAdjustment[] @relation("AdjustmentCreator")
+
+  @@map("users")
+}
+
+model Category {
+  id          String        @id @default(cuid())
+  name        String        @unique
+  description String?
+  status      ProductStatus @default(ACTIVE)
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relationships
+  products    Product[]
+
+  @@map("categories")
+}
+
+model Brand {
+  id          String        @id @default(cuid())
+  name        String        @unique
+  status      ProductStatus @default(ACTIVE)
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relationships
+  products    Product[]
+
+  @@map("brands")
+}
+
+model Product {
+  id                String        @id @default(cuid())
+  sku               String        @unique
+  externalProductId String?       @unique
+  name              String
+  description       String?
+  barcode           String?       @unique
+  costPrice         Decimal       @db.Decimal(12, 2)
+  reorderLevel      Int
+  status            ProductStatus @default(ACTIVE)
+
+  categoryId        String
+  brandId           String
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  // Relationships
+  category          Category               @relation(fields: [categoryId], references: [id])
+  brand             Brand                  @relation(fields: [brandId], references: [id])
+  inventories       InventoryBalance[]
+  movements         StockMovement[]
+  purchaseOrderItems PurchaseOrderItem[]
+  goodsReceiptItems  GoodsReceiptItem[]
+
+  @@index([sku])
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([status])
+  @@map("products")
+}
+
+model Location {
+  id          String   @id @default(cuid())
+  name        String   @unique
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  inventories  InventoryBalance[]
+  goodsReceipts GoodsReceipt[]
+
+  @@map("locations")
+}
+
+model InventoryBalance {
+  id               String   @id @default(cuid())
+  productId        String
+  locationId       String
+  quantity         Int      @default(0)
+  reservedQuantity Int      @default(0)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relationships
+  product          Product          @relation(fields: [productId], references: [id])
+  location         Location         @relation(fields: [locationId], references: [id])
+  movements        StockMovement[]
+  adjustments      StockAdjustment[]
+
+  @@unique([productId, locationId])
+  @@index([locationId])
+  @@index([productId])
+  @@map("inventory_balances")
+}
+
+model StockMovement {
+  id               String       @id @default(cuid())
+  inventoryId      String
+  productId        String
+  type             MovementType
+  quantity         Int
+  previousQuantity Int
+  newQuantity      Int
+  reason           String
+  reference        String?
+  createdById      String
+  createdAt        DateTime     @default(now())
+
+  // Relationships
+  inventory        InventoryBalance @relation(fields: [inventoryId], references: [id])
+  product          Product          @relation(fields: [productId], references: [id])
+  creator          User             @relation("StockMovementCreator", fields: [createdById], references: [id])
+
+  @@index([inventoryId])
+  @@index([productId])
+  @@index([createdById])
+  @@index([createdAt])
+  @@index([type])
+  @@map("stock_movements")
+}
+
+model StockAdjustment {
+  id               String         @id @default(cuid())
+  adjustmentNumber String         @unique
+  inventoryId      String
+  quantity         Int
+  type             AdjustmentType
+  reason           String
+  createdById      String
+  createdAt        DateTime       @default(now())
+
+  // Relationships
+  inventory        InventoryBalance @relation(fields: [inventoryId], references: [id])
+  creator          User             @relation("AdjustmentCreator", fields: [createdById], references: [id])
+
+  @@index([inventoryId])
+  @@index([createdById])
+  @@index([createdAt])
+  @@map("stock_adjustments")
+}
+
+model Supplier {
+  id            String         @id @default(cuid())
+  name          String         @unique
+  contactPerson String?
+  email         String?
+  phone         String?
+  address       String?
+  status        SupplierStatus @default(ACTIVE)
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relationships
+  purchaseOrders PurchaseOrder[]
+
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id            String               @id @default(cuid())
+  poNumber      String               @unique
+  supplierId    String
+  status        PurchaseOrderStatus  @default(DRAFT)
+  orderDate     DateTime             @default(now())
+  expectedDate  DateTime?
+  createdById   String
+  approvedById  String?
+  approvedAt    DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  // Relationships
+  supplier      Supplier             @relation(fields: [supplierId], references: [id])
+  creator       User                 @relation("POCreator", fields: [createdById], references: [id])
+  approver      User?                @relation("POApprover", fields: [approvedById], references: [id])
+  items         PurchaseOrderItem[]
+  goodsReceipts GoodsReceipt[]
+
+  @@index([supplierId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id               String   @id @default(cuid())
+  purchaseOrderId  String
+  productId        String
+  quantity         Int
+  receivedQuantity Int      @default(0)
+  unitCost         Decimal  @db.Decimal(12, 2)
+  totalCost        Decimal  @db.Decimal(12, 2)
+
+  // Relationships
+  purchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  product          Product       @relation(fields: [productId], references: [id])
+
+  @@unique([purchaseOrderId, productId])
+  @@index([purchaseOrderId])
+  @@index([productId])
+  @@map("purchase_order_items")
+}
+
+model GoodsReceipt {
+  id              String   @id @default(cuid())
+  receiptNumber   String   @unique
+  purchaseOrderId String
+  locationId      String
+  receivedById    String
+  receivedAt      DateTime @default(now())
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relationships
+  purchaseOrder   PurchaseOrder     @relation(fields: [purchaseOrderId], references: [id])
+  location        Location          @relation(fields: [locationId], references: [id])
+  receiver        User              @relation("GoodsReceiptReceiver", fields: [receivedById], references: [id])
+  items           GoodsReceiptItem[]
+
+  @@index([purchaseOrderId])
+  @@index([locationId])
+  @@index([receivedById])
+  @@index([createdAt])
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptItem {
+  id               String   @id @default(cuid())
+  goodsReceiptId   String
+  productId        String
+  orderedQuantity  Int
+  receivedQuantity Int
+  acceptedQuantity Int
+  damagedQuantity  Int      @default(0)
+
+  // Relationships
+  goodsReceipt     GoodsReceipt @relation(fields: [goodsReceiptId], references: [id])
+  product          Product      @relation(fields: [productId], references: [id])
+
+  @@unique([goodsReceiptId, productId])
+  @@index([goodsReceiptId])
+  @@index([productId])
+  @@map("goods_receipt_items")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String
+  action      String
+  entity      String
+  entityId    String
+  oldValue    Json?
+  newValue    Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  // Relationships
+  user        User     @relation("AuditLogCreator", fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entity])
+  @@index([entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
