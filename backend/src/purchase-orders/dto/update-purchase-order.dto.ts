@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID, IsOptional, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsDateString } from 'class-validator';
 
 export class UpdatePurchaseOrderDto {
   @ApiProperty({
@@ -8,7 +8,7 @@ export class UpdatePurchaseOrderDto {
     required: false,
   })
   @IsOptional()
-  @IsUUID('4', { message: 'Invalid supplier ID format' })
+  @IsString()
   supplierId?: string;
 
   @ApiProperty({

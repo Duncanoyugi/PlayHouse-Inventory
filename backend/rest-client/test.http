@@ -1,0 +1,875 @@
+### ============================================
+### PLAYHOUSE INVENTORY API - REST Client Tests
+### ============================================
+
+### Variables
+@baseUrl = http://localhost:3000/api/v1
+@adminToken = {{loginAdmin.response.body.data.accessToken}}
+@storekeeperToken = {{loginStorekeeper.response.body.data.accessToken}}
+@userId = {{createUser.response.body.data.id}}
+@productId = {{createProduct.response.body.data.id}}
+@categoryId = {{createCategory.response.body.data.id}}
+@brandId = {{createBrand.response.body.data.id}}
+@locationId = {{createLocation.response.body.data.id}}
+@supplierId = {{createSupplier.response.body.data.id}}
+@poId = {{createPurchaseOrder.response.body.data.id}}
+@grId = {{createGoodsReceipt.response.body.data.id}}
+
+### ============================================
+### AUTHENTICATION
+### ============================================
+
+### Login as Admin
+# @name loginAdmin
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@playhouse.co.ke",
+  "password": "Admin@123"
+}
+
+### Login as Storekeeper
+# @name loginStorekeeper
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "storekeeper@playhouse.co.ke",
+  "password": "Storekeeper@123"
+}
+
+### Get Current User Profile
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{adminToken}}
+
+### Refresh Token
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "your-refresh-token-here"
+}
+
+### Logout
+POST {{baseUrl}}/auth/logout
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### USERS
+### ============================================
+
+### Create User (Admin only)
+# @name createUser
+POST {{baseUrl}}/users
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "email": "newstorekeeper@playhouse.co.ke",
+  "fullName": "John Storekeeper",
+  "password": "Storekeeper@123",
+  "role": "STOREKEEPER",
+  "status": "ACTIVE"
+}
+
+### Get All Users
+GET {{baseUrl}}/users?page=1&limit=20
+Authorization: Bearer {{adminToken}}
+
+### Get User by ID
+GET {{baseUrl}}/users/{{userId}}
+Authorization: Bearer {{adminToken}}
+
+### Update User
+PATCH {{baseUrl}}/users/{{userId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "fullName": "John Storekeeper Updated",
+  "role": "ADMIN"
+}
+
+### Disable User
+PATCH {{baseUrl}}/users/{{userId}}/disable
+Authorization: Bearer {{adminToken}}
+
+### Enable User
+PATCH {{baseUrl}}/users/{{userId}}/enable
+Authorization: Bearer {{adminToken}}
+
+### Delete User (Soft Delete)
+DELETE {{baseUrl}}/users/{{userId}}
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### CATEGORIES
+### ============================================
+
+### Create Category
+# @name createCategory
+POST {{baseUrl}}/categories
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Smart Watches",
+  "description": "Smart watches and wearables",
+  "status": "ACTIVE"
+}
+
+### Get All Categories
+GET {{baseUrl}}/categories?status=ACTIVE
+Authorization: Bearer {{adminToken}}
+
+### Get Category by ID
+GET {{baseUrl}}/categories/{{categoryId}}
+Authorization: Bearer {{adminToken}}
+
+### Update Category
+PATCH {{baseUrl}}/categories/{{categoryId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Smart Watches & Wearables",
+  "status": "ACTIVE"
+}
+
+### Delete Category
+DELETE {{baseUrl}}/categories/{{categoryId}}
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### BRANDS
+### ============================================
+
+### Create Brand
+# @name createBrand
+POST {{baseUrl}}/brands
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Xiaomi",
+  "status": "ACTIVE"
+}
+
+### Get All Brands
+GET {{baseUrl}}/brands
+Authorization: Bearer {{adminToken}}
+
+### Get Brand by ID
+GET {{baseUrl}}/brands/{{brandId}}
+Authorization: Bearer {{adminToken}}
+
+### Update Brand
+PATCH {{baseUrl}}/brands/{{brandId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Xiaomi Corporation"
+}
+
+### Delete Brand
+DELETE {{baseUrl}}/brands/{{brandId}}
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### PRODUCTS
+### ============================================
+
+### Create Product
+# @name createProduct
+POST {{baseUrl}}/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "sku": "XIA-MI-BAND-8-BLK",
+  "name": "Xiaomi Mi Band 8 Black",
+  "description": "Xiaomi Mi Band 8 fitness tracker in black",
+  "barcode": "6934177744567",
+  "costPrice": 4500,
+  "reorderLevel": 10,
+  "categoryId": "{{categoryId}}",
+  "brandId": "{{brandId}}",
+  "status": "ACTIVE"
+}
+
+### Get All Products with Search
+GET {{baseUrl}}/products?search=Xiaomi&status=ACTIVE&page=1&limit=20
+Authorization: Bearer {{adminToken}}
+
+### Get Product by ID
+GET {{baseUrl}}/products/{{productId}}
+Authorization: Bearer {{adminToken}}
+
+### Get Product by SKU
+GET {{baseUrl}}/products/sku/XIA-MI-BAND-8-BLK
+Authorization: Bearer {{adminToken}}
+
+### Update Product
+PATCH {{baseUrl}}/products/{{productId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Xiaomi Mi Band 8 Pro Black",
+  "costPrice": 5500,
+  "reorderLevel": 15
+}
+
+### Delete Product (Soft Delete)
+DELETE {{baseUrl}}/products/{{productId}}
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### LOCATIONS
+### ============================================
+
+### Create Location
+# @name createLocation
+POST {{baseUrl}}/locations
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Nairobi Warehouse"
+}
+
+### Get All Locations
+GET {{baseUrl}}/locations
+Authorization: Bearer {{adminToken}}
+
+### Get Location by ID
+GET {{baseUrl}}/locations/{{locationId}}
+Authorization: Bearer {{adminToken}}
+
+### Update Location
+PATCH {{baseUrl}}/locations/{{locationId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Nairobi Main Warehouse"
+}
+
+### Delete Location
+DELETE {{baseUrl}}/locations/{{locationId}}
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### INVENTORY
+### ============================================
+
+### Get All Inventory
+GET {{baseUrl}}/inventory?locationId={{locationId}}&page=1&limit=20
+Authorization: Bearer {{adminToken}}
+
+### Get Inventory by Product
+GET {{baseUrl}}/inventory/{{productId}}
+Authorization: Bearer {{adminToken}}
+
+### Get Inventory by Location
+GET {{baseUrl}}/inventory/location/{{locationId}}
+Authorization: Bearer {{adminToken}}
+
+### Get Low Stock Products
+GET {{baseUrl}}/inventory/low-stock?locationId={{locationId}}
+Authorization: Bearer {{adminToken}}
+
+### Stock In - Add Stock
+POST {{baseUrl}}/inventory/stock-in
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "productId": "{{productId}}",
+  "locationId": "{{locationId}}",
+  "quantity": 50,
+  "reason": "Supplier delivery - PO-2026-001",
+  "reference": "PO-2026-001"
+}
+
+### Stock Out - Remove Stock
+POST {{baseUrl}}/inventory/stock-out
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "productId": "{{productId}}",
+  "locationId": "{{locationId}}",
+  "quantity": 10,
+  "reason": "Customer order fulfillment",
+  "reference": "ORD-2026-001"
+}
+
+### Adjust Stock - Increase
+POST {{baseUrl}}/inventory/adjust
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "productId": "{{productId}}",
+  "locationId": "{{locationId}}",
+  "quantity": 5,
+  "type": "INCREASE",
+  "reason": "Physical stock count correction"
+}
+
+### Adjust Stock - Decrease
+POST {{baseUrl}}/inventory/adjust
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "productId": "{{productId}}",
+  "locationId": "{{locationId}}",
+  "quantity": 3,
+  "type": "DECREASE",
+  "reason": "Physical stock count correction"
+}
+
+### Record Damaged Stock
+POST {{baseUrl}}/inventory/damage
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "productId": "{{productId}}",
+  "locationId": "{{locationId}}",
+  "quantity": 2,
+  "reason": "Screen damaged during handling",
+  "reference": "DMG-2026-001"
+}
+
+### ============================================
+### STOCK MOVEMENTS
+### ============================================
+
+### Get All Stock Movements
+GET {{baseUrl}}/stock-movements?page=1&limit=20
+Authorization: Bearer {{adminToken}}
+
+### Get Stock Movements with Filters
+GET {{baseUrl}}/stock-movements?productId={{productId}}&type=STOCK_IN&fromDate=2026-01-01&toDate=2026-12-31
+Authorization: Bearer {{adminToken}}
+
+### Get Stock Movement by ID
+GET {{baseUrl}}/stock-movements/movement-id-here
+Authorization: Bearer {{adminToken}}
+
+### Get Stock Movements by Product
+GET {{baseUrl}}/stock-movements/product/{{productId}}?page=1&limit=20
+Authorization: Bearer {{adminToken}}
+
+### Get Stock Movements by Location
+GET {{baseUrl}}/stock-movements/location/{{locationId}}?page=1&limit=20
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### SUPPLIERS
+### ============================================
+
+### Create Supplier
+# @name createSupplier
+POST {{baseUrl}}/suppliers
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Tech Distributors Ltd",
+  "contactPerson": "Jane Wanjiru",
+  "email": "jane@techdistributors.co.ke",
+  "phone": "+254712345678",
+  "address": "123 Industrial Area, Nairobi, Kenya",
+  "status": "ACTIVE"
+}
+
+### Get All Suppliers
+GET {{baseUrl}}/suppliers
+Authorization: Bearer {{adminToken}}
+
+### Get Supplier by ID
+GET {{baseUrl}}/suppliers/{{supplierId}}
+Authorization: Bearer {{adminToken}}
+
+### Update Supplier
+PATCH {{baseUrl}}/suppliers/{{supplierId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "contactPerson": "Jane Wanjiru Kibiru",
+  "phone": "+254723456789"
+}
+
+### Delete Supplier
+DELETE {{baseUrl}}/suppliers/{{supplierId}}
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### PURCHASE ORDERS
+### ============================================
+
+### Create Purchase Order (DRAFT)
+# @name createPurchaseOrder
+POST {{baseUrl}}/purchase-orders
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "supplierId": "{{supplierId}}",
+  "expectedDate": "2026-09-15",
+  "items": [
+    {
+      "productId": "{{productId}}",
+      "quantity": 100,
+      "unitCost": 4200
+    }
+  ]
+}
+
+### Get All Purchase Orders
+GET {{baseUrl}}/purchase-orders?page=1&limit=20
+Authorization: Bearer {{adminToken}}
+
+### Get Purchase Orders with Filters
+GET {{baseUrl}}/purchase-orders?status=DRAFT&supplierId={{supplierId}}
+Authorization: Bearer {{adminToken}}
+
+### Get Purchase Order by ID
+GET {{baseUrl}}/purchase-orders/{{poId}}
+Authorization: Bearer {{adminToken}}
+
+### Submit Purchase Order (DRAFT -> SUBMITTED)
+POST {{baseUrl}}/purchase-orders/{{poId}}/submit
+Authorization: Bearer {{adminToken}}
+
+### Approve Purchase Order (SUBMITTED -> APPROVED)
+POST {{baseUrl}}/purchase-orders/{{poId}}/approve
+Authorization: Bearer {{adminToken}}
+
+### Cancel Purchase Order
+POST {{baseUrl}}/purchase-orders/{{poId}}/cancel
+Authorization: Bearer {{adminToken}}
+
+### Update Purchase Order (DRAFT only)
+PATCH {{baseUrl}}/purchase-orders/{{poId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "expectedDate": "2026-09-20"
+}
+
+### Delete Purchase Order (DRAFT only)
+DELETE {{baseUrl}}/purchase-orders/{{poId}}
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### GOODS RECEIPTS
+### ============================================
+
+### Create Goods Receipt
+# @name createGoodsReceipt
+POST {{baseUrl}}/goods-receipts
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "purchaseOrderId": "{{poId}}",
+  "locationId": "{{locationId}}",
+  "notes": "Received 98 units, 2 damaged",
+  "items": [
+    {
+      "productId": "{{productId}}",
+      "receivedQuantity": 100,
+      "damagedQuantity": 2
+    }
+  ]
+}
+
+### Get All Goods Receipts
+GET {{baseUrl}}/goods-receipts?page=1&limit=20
+Authorization: Bearer {{adminToken}}
+
+### Get Goods Receipts with Filters
+GET {{baseUrl}}/goods-receipts?purchaseOrderId={{poId}}&locationId={{locationId}}
+Authorization: Bearer {{adminToken}}
+
+### Get Goods Receipt by ID
+GET {{baseUrl}}/goods-receipts/{{grId}}
+Authorization: Bearer {{adminToken}}
+
+### Get Goods Receipts by Purchase Order
+GET {{baseUrl}}/goods-receipts/purchase-order/{{poId}}
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### REPORTS
+### ============================================
+
+### Get Inventory Summary Dashboard
+GET {{baseUrl}}/reports/inventory-summary?locationId={{locationId}}
+Authorization: Bearer {{adminToken}}
+
+### Get Low Stock Report
+GET {{baseUrl}}/reports/low-stock?locationId={{locationId}}
+Authorization: Bearer {{adminToken}}
+
+### Get Stock Movement Report
+GET {{baseUrl}}/reports/movements?fromDate=2026-01-01&toDate=2026-12-31&productId={{productId}}
+Authorization: Bearer {{adminToken}}
+
+### Get Inventory Valuation Report
+GET {{baseUrl}}/reports/valuation?locationId={{locationId}}
+Authorization: Bearer {{adminToken}}
+
+### Get Top Moving Products
+GET {{baseUrl}}/reports/top-moving?limit=10&period=30
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### AUDIT
+### ============================================
+
+### Get All Audit Logs
+GET {{baseUrl}}/audit?page=1&limit=20
+Authorization: Bearer {{adminToken}}
+
+### Get Audit Logs with Filters
+GET {{baseUrl}}/audit?entity=Product&action=PRODUCT_CREATE&fromDate=2026-01-01&toDate=2026-12-31
+Authorization: Bearer {{adminToken}}
+
+### Get Audit Logs by User
+GET {{baseUrl}}/audit/user/{{userId}}?page=1&limit=20
+Authorization: Bearer {{adminToken}}
+
+### Get Audit Logs by Entity
+GET {{baseUrl}}/audit/entity/Product/{{productId}}
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### HEALTH CHECK
+### ============================================
+
+### Health Check
+GET {{baseUrl}}/health
+Authorization: Bearer {{adminToken}}
+
+### Database Health Check
+GET {{baseUrl}}/health/db
+Authorization: Bearer {{adminToken}}
+
+### Database Statistics
+GET {{baseUrl}}/health/db/stats
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### STOREKEEPER TESTING (Limited Permissions)
+### ============================================
+
+### Storekeeper: View Products
+GET {{baseUrl}}/products
+Authorization: Bearer {{storekeeperToken}}
+
+### Storekeeper: View Inventory
+GET {{baseUrl}}/inventory
+Authorization: Bearer {{storekeeperToken}}
+
+### Storekeeper: Stock In (Allowed)
+POST {{baseUrl}}/inventory/stock-in
+Authorization: Bearer {{storekeeperToken}}
+Content-Type: application/json
+
+{
+  "productId": "{{productId}}",
+  "locationId": "{{locationId}}",
+  "quantity": 20,
+  "reason": "Storekeeper receiving stock"
+}
+
+### Storekeeper: Create User (Should Fail - Forbidden)
+POST {{baseUrl}}/users
+Authorization: Bearer {{storekeeperToken}}
+Content-Type: application/json
+
+{
+  "email": "shouldfail@test.com",
+  "fullName": "Test Fail",
+  "password": "Test@123",
+  "role": "STOREKEEPER"
+}
+
+### ============================================
+### ERROR TESTING
+### ============================================
+
+### Test Invalid Login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "wrong@email.com",
+  "password": "wrongpassword"
+}
+
+### Test Unauthorized Access (No Token)
+GET {{baseUrl}}/users
+
+### Test Invalid Product Creation
+POST {{baseUrl}}/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "sku": "",  // Empty SKU should fail
+  "name": "Test",
+  "costPrice": -100,  // Negative price should fail
+  "reorderLevel": -5  // Negative reorder level should fail
+}
+
+### Test Insufficient Stock
+POST {{baseUrl}}/inventory/stock-out
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "productId": "{{productId}}",
+  "locationId": "{{locationId}}",
+  "quantity": 9999,
+  "reason": "Testing insufficient stock"
+}
+
+### Test Invalid Purchase Order Status Transition
+POST {{baseUrl}}/purchase-orders/{{poId}}/approve
+Authorization: Bearer {{adminToken}}
+# This will fail if PO is not in SUBMITTED status
+
+### ============================================
+### BULK OPERATIONS TESTING
+### ============================================
+
+### Create Multiple Products (Sequential)
+POST {{baseUrl}}/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "sku": "TEST-PROD-001",
+  "name": "Test Product 1",
+  "costPrice": 1000,
+  "reorderLevel": 5,
+  "categoryId": "{{categoryId}}",
+  "brandId": "{{brandId}}",
+  "status": "ACTIVE"
+}
+
+###
+
+POST {{baseUrl}}/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "sku": "TEST-PROD-002",
+  "name": "Test Product 2",
+  "costPrice": 2000,
+  "reorderLevel": 10,
+  "categoryId": "{{categoryId}}",
+  "brandId": "{{brandId}}",
+  "status": "ACTIVE"
+}
+
+### Create Multiple Inventory Entries
+POST {{baseUrl}}/inventory/stock-in
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "productId": "TEST-PROD-001",
+  "locationId": "{{locationId}}",
+  "quantity": 100,
+  "reason": "Bulk stock in"
+}
+
+###
+
+POST {{baseUrl}}/inventory/stock-in
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "productId": "TEST-PROD-002",
+  "locationId": "{{locationId}}",
+  "quantity": 50,
+  "reason": "Bulk stock in"
+}
+
+### ============================================
+### COMPLETE WORKFLOW TEST
+### ============================================
+
+### 1. Create Product
+POST {{baseUrl}}/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "sku": "WF-TEST-001",
+  "name": "Workflow Test Product",
+  "costPrice": 10000,
+  "reorderLevel": 20,
+  "categoryId": "{{categoryId}}",
+  "brandId": "{{brandId}}",
+  "status": "ACTIVE"
+}
+
+### 2. Create Location (if needed)
+POST {{baseUrl}}/locations
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Workflow Test Location"
+}
+
+### 3. Add Stock
+POST {{baseUrl}}/inventory/stock-in
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "productId": "wf-test-product-id",
+  "locationId": "wf-test-location-id",
+  "quantity": 100,
+  "reason": "Initial stock for workflow test"
+}
+
+### 4. Remove Stock
+POST {{baseUrl}}/inventory/stock-out
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "productId": "wf-test-product-id",
+  "locationId": "wf-test-location-id",
+  "quantity": 30,
+  "reason": "Sales for workflow test"
+}
+
+### 5. Check Stock Movements
+GET {{baseUrl}}/stock-movements/product/wf-test-product-id
+Authorization: Bearer {{adminToken}}
+
+### 6. Check Current Stock
+GET {{baseUrl}}/inventory/wf-test-product-id
+Authorization: Bearer {{adminToken}}
+
+### 7. Create Supplier
+POST {{baseUrl}}/suppliers
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Workflow Test Supplier",
+  "contactPerson": "Test Contact",
+  "email": "test@workflow.com",
+  "phone": "+254700000000"
+}
+
+### 8. Create Purchase Order
+POST {{baseUrl}}/purchase-orders
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "supplierId": "wf-test-supplier-id",
+  "expectedDate": "2026-10-01",
+  "items": [
+    {
+      "productId": "wf-test-product-id",
+      "quantity": 50,
+      "unitCost": 9000
+    }
+  ]
+}
+
+### 9. Submit Purchase Order
+POST {{baseUrl}}/purchase-orders/wf-test-po-id/submit
+Authorization: Bearer {{adminToken}}
+
+### 10. Approve Purchase Order
+POST {{baseUrl}}/purchase-orders/wf-test-po-id/approve
+Authorization: Bearer {{adminToken}}
+
+### 11. Receive Goods
+POST {{baseUrl}}/goods-receipts
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "purchaseOrderId": "wf-test-po-id",
+  "locationId": "wf-test-location-id",
+  "notes": "Workflow test receipt",
+  "items": [
+    {
+      "productId": "wf-test-product-id",
+      "receivedQuantity": 50,
+      "damagedQuantity": 0
+    }
+  ]
+}
+
+### 12. Check Final Stock
+GET {{baseUrl}}/inventory/wf-test-product-id
+Authorization: Bearer {{adminToken}}
+
+### 13. Check Audit Trail
+GET {{baseUrl}}/audit/entity/Product/wf-test-product-id
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### PERFORMANCE TESTING
+### ============================================
+
+### Test Pagination Performance
+GET {{baseUrl}}/products?page=1&limit=100
+Authorization: Bearer {{adminToken}}
+
+### Test Search Performance
+GET {{baseUrl}}/products?search=a&page=1&limit=50
+Authorization: Bearer {{adminToken}}
+
+### Test Date Range Query Performance
+GET {{baseUrl}}/stock-movements?fromDate=2026-01-01&toDate=2026-12-31&page=1&limit=100
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### DATA CLEANUP
+### ============================================
+
+### Delete Test Products
+DELETE {{baseUrl}}/products/TEST-PROD-001
+Authorization: Bearer {{adminToken}}
+
+###
+
+DELETE {{baseUrl}}/products/TEST-PROD-002
+Authorization: Bearer {{adminToken}}
+
+### Delete Test Supplier
+DELETE {{baseUrl}}/suppliers/wf-test-supplier-id
+Authorization: Bearer {{adminToken}}
+
+### Delete Test Location
+DELETE {{baseUrl}}/locations/wf-test-location-id
+Authorization: Bearer {{adminToken}}
+
+### ============================================
+### END OF REQUESTS
+### ============================================

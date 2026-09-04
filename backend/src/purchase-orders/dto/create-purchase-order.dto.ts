@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID, IsArray, ValidateNested, IsOptional, IsDateString, Min, IsNumber } from 'class-validator';
+import { IsString, IsArray, ValidateNested, IsOptional, IsDateString, Min, IsNumber } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class PurchaseOrderItemDto {
@@ -7,7 +7,7 @@ class PurchaseOrderItemDto {
     example: 'prod_123456789',
     description: 'Product ID',
   })
-  @IsUUID('4', { message: 'Invalid product ID format' })
+  @IsString()
   productId: string;
 
   @ApiProperty({
@@ -34,7 +34,7 @@ export class CreatePurchaseOrderDto {
     example: 'supplier_123456789',
     description: 'Supplier ID',
   })
-  @IsUUID('4', { message: 'Invalid supplier ID format' })
+  @IsString()
   supplierId: string;
 
   @ApiProperty({

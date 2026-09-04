@@ -1,0 +1,9 @@
+﻿import { Mail, ShieldCheck, UserRound } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+
+export const ProfilePage = () => {
+  const { user } = useAuth()
+  return <div className="mx-auto max-w-3xl space-y-6"><div><p className="text-sm font-semibold uppercase tracking-widest text-cyan-700">Account</p><h1 className="mt-1 text-3xl font-semibold text-slate-950">Your profile</h1><p className="mt-2 text-sm text-slate-500">Identity and access details for the current Playhouse account.</p></div><section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><div className="flex items-center gap-4 border-b border-slate-100 pb-6"><div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-cyan-100 text-xl font-bold text-cyan-800">{user?.fullName?.charAt(0) || 'U'}</div><div><h2 className="text-xl font-semibold text-slate-950">{user?.fullName || 'User'}</h2><p className="text-sm text-slate-500">{user?.role || 'Account'}</p></div></div><dl className="grid gap-5 pt-6 sm:grid-cols-2"><Detail icon={<Mail className="h-4 w-4" />} label="Email address" value={user?.email || '-'} /><Detail icon={<ShieldCheck className="h-4 w-4" />} label="Access role" value={user?.role || '-'} /><Detail icon={<UserRound className="h-4 w-4" />} label="Account status" value={user?.status || '-'} /><Detail icon={<UserRound className="h-4 w-4" />} label="Member since" value={user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-'} /></dl></section></div>
+}
+
+function Detail({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) { return <div><dt className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{icon}{label}</dt><dd className="mt-1 text-sm font-medium text-slate-900">{value}</dd></div> }

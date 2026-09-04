@@ -8,7 +8,6 @@ import {
   Max,
   MinLength,
   MaxLength,
-  IsUUID,
 } from 'class-validator';
 import { ProductStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
@@ -84,7 +83,7 @@ export class UpdateProductDto {
     required: false,
   })
   @IsOptional()
-  @IsUUID('4', { message: 'Invalid category ID format' })
+  @IsString()
   categoryId?: string;
 
   @ApiProperty({
@@ -93,7 +92,7 @@ export class UpdateProductDto {
     required: false,
   })
   @IsOptional()
-  @IsUUID('4', { message: 'Invalid brand ID format' })
+  @IsString()
   brandId?: string;
 
   @ApiProperty({

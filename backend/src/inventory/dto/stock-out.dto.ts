@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID, IsInt, IsString, Min, IsOptional, MinLength } from 'class-validator';
+import { IsInt, IsString, Min, IsOptional, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class StockOutDto {
@@ -7,14 +7,14 @@ export class StockOutDto {
     example: 'prod_123456789',
     description: 'Product ID',
   })
-  @IsUUID('4', { message: 'Invalid product ID format' })
+  @IsString()
   productId: string;
 
   @ApiProperty({
     example: 'loc_123456789',
     description: 'Location ID',
   })
-  @IsUUID('4', { message: 'Invalid location ID format' })
+  @IsString()
   locationId: string;
 
   @ApiProperty({

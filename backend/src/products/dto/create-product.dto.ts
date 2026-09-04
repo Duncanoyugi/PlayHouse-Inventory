@@ -8,7 +8,6 @@ import {
   Max,
   MinLength,
   MaxLength,
-  IsUUID,
 } from 'class-validator';
 import { ProductStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
@@ -74,14 +73,14 @@ export class CreateProductDto {
     example: 'cat_123456789',
     description: 'Category ID',
   })
-  @IsUUID('4', { message: 'Invalid category ID format' })
+  @IsString()
   categoryId: string;
 
   @ApiProperty({
     example: 'brand_123456789',
     description: 'Brand ID',
   })
-  @IsUUID('4', { message: 'Invalid brand ID format' })
+  @IsString()
   brandId: string;
 
   @ApiProperty({

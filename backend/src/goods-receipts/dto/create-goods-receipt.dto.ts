@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID, IsArray, ValidateNested, IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
+import { IsString, IsArray, ValidateNested, IsOptional, IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class GoodsReceiptItemDto {
@@ -7,7 +7,7 @@ class GoodsReceiptItemDto {
     example: 'prod_123456789',
     description: 'Product ID',
   })
-  @IsUUID('4', { message: 'Invalid product ID format' })
+  @IsString()
   productId: string;
 
   @ApiProperty({
@@ -35,14 +35,14 @@ export class CreateGoodsReceiptDto {
     example: 'po_123456789',
     description: 'Purchase Order ID',
   })
-  @IsUUID('4', { message: 'Invalid purchase order ID format' })
+  @IsString()
   purchaseOrderId: string;
 
   @ApiProperty({
     example: 'loc_123456789',
     description: 'Location ID where goods are received',
   })
-  @IsUUID('4', { message: 'Invalid location ID format' })
+  @IsString()
   locationId: string;
 
   @ApiProperty({
