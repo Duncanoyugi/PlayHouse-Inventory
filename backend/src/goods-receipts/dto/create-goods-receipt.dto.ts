@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsArray, ValidateNested, IsOptional, IsInt, Min, Max } from 'class-validator';
+import { IsString, IsArray, ValidateNested, IsOptional, IsInt, Min, ArrayNotEmpty } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class GoodsReceiptItemDto {
@@ -50,6 +50,7 @@ export class CreateGoodsReceiptDto {
     description: 'Items being received',
   })
   @IsArray()
+  @ArrayNotEmpty({ message: 'At least one receipt item is required' })
   @ValidateNested({ each: true })
   @Type(() => GoodsReceiptItemDto)
   items: GoodsReceiptItemDto[];

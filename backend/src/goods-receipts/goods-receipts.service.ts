@@ -31,7 +31,10 @@ export class GoodsReceiptsService {
       throw new NotFoundException('Purchase order not found');
     }
 
-    if (purchaseOrder.status !== PurchaseOrderStatus.APPROVED) {
+    if (
+      purchaseOrder.status !== PurchaseOrderStatus.APPROVED &&
+      purchaseOrder.status !== PurchaseOrderStatus.PARTIALLY_RECEIVED
+    ) {
       throw new BadRequestException(
         `Purchase order must be APPROVED before receiving. Current status: ${purchaseOrder.status}`,
       );

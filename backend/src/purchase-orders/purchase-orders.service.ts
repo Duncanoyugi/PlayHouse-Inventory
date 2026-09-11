@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
-import { PurchaseOrderStatus } from '@prisma/client';
+import { Prisma, PurchaseOrderStatus } from '@prisma/client';
 
 @Injectable()
 export class PurchaseOrdersService {
@@ -436,27 +436,38 @@ export class PurchaseOrdersService {
       }
     }
 
-    // Remove undefined values
-    const updateData: any = { ...updatePurchaseOrderDto };
-    delete updateData.items;
+    const { items, expectedDate, supplierId } = updatePurchaseOrderDto;
+    const updateData: Prisma.PurchaseOrderUpdateInput = {};
+    if (supplierId) updateData.supplier = { connect: { id: supplierId } };
+    if (expectedDate) updateData.expectedDate = new Date(expectedDate);
 
-    Object.keys(updateData).forEach((key) => {
-      if (updateData[key] === undefined) {
-        delete updateData[key];
+    return this.prisma.$transaction(async (tx) => {
+      if (items) {
+        const productIds = items.map((item) => item.productId);
+        const products = await tx.product.findMany({ where: { id: { in: productIds }, status: 'ACTIVE' } });
+        if (products.length !== productIds.length) {
+          throw new NotFoundException('One or more products not found or inactive');
+        }
+
+        await tx.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: id } });
+        await tx.purchaseOrderItem.createMany({
+          data: items.map((item) => ({
+            purchaseOrderId: id,
+            productId: item.productId,
+            quantity: item.quantity,
+            unitCost: item.unitCost,
+            totalCost: item.quantity * item.unitCost,
+            receivedQuantity: 0,
+          })),
+        });
+        updateData.totalAmount = items.reduce((total, item) => total + item.quantity * item.unitCost, 0);
       }
-    });
 
-    return this.prisma.purchaseOrder.update({
-      where: { id },
-      data: updateData,
-      include: {
-        supplier: true,
-        items: {
-          include: {
-            product: true,
-          },
-        },
-      },
+      return tx.purchaseOrder.update({
+        where: { id },
+        data: updateData,
+        include: { supplier: true, items: { include: { product: true } } },
+      });
     });
   }
 

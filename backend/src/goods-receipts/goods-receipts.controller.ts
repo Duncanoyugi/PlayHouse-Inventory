@@ -56,18 +56,18 @@ export class GoodsReceiptsController {
     });
   }
 
+  @Get('purchase-order/:purchaseOrderId')
+  @ApiOperation({ summary: 'Get all goods receipts for a purchase order' })
+  @ApiResponse({ status: 200, description: 'Goods receipts retrieved' })
+  findByPurchaseOrder(@Param('purchaseOrderId') purchaseOrderId: string) {
+    return this.goodsReceiptsService.findByPurchaseOrder(purchaseOrderId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a goods receipt by ID' })
   @ApiResponse({ status: 200, description: 'Goods receipt retrieved' })
   @ApiResponse({ status: 404, description: 'Goods receipt not found' })
   findOne(@Param('id') id: string) {
     return this.goodsReceiptsService.findOne(id);
-  }
-
-  @Get('purchase-order/:purchaseOrderId')
-  @ApiOperation({ summary: 'Get all goods receipts for a purchase order' })
-  @ApiResponse({ status: 200, description: 'Goods receipts retrieved' })
-  findByPurchaseOrder(@Param('purchaseOrderId') purchaseOrderId: string) {
-    return this.goodsReceiptsService.findByPurchaseOrder(purchaseOrderId);
   }
 }

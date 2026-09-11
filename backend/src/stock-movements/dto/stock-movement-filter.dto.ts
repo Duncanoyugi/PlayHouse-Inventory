@@ -1,8 +1,24 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString, IsUUID, IsDateString, IsEnum } from 'class-validator';
+import { IsOptional, IsString, IsUUID, IsDateString, IsEnum, IsInt, Min, Max } from 'class-validator';
+import { Type } from 'class-transformer';
 import { MovementType } from '@prisma/client';
 
 export class StockMovementFilterDto {
+  @ApiProperty({ required: false, default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiProperty({ required: false, default: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
   @ApiProperty({
     required: false,
     description: 'Filter by product ID',

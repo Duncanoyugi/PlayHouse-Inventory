@@ -20,6 +20,7 @@ interface ProductListProps {
   onRefresh: () => void
   categories?: Category[]
   brands?: Brand[]
+  canManage?: boolean
 }
 
 export const ProductList: React.FC<ProductListProps> = ({
@@ -29,6 +30,7 @@ export const ProductList: React.FC<ProductListProps> = ({
   onRefresh,
   categories = [],
   brands = [],
+  canManage = true,
 }) => {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
@@ -138,20 +140,20 @@ export const ProductList: React.FC<ProductListProps> = ({
       header: 'Actions',
       render: (item: Product) => (
         <div className="flex gap-2">
-          <button
+          {canManage && <button
             onClick={() => handleView(item)}
             className="text-blue-600 hover:text-blue-800"
             title="View"
           >
             <Eye className="h-4 w-4" />
-          </button>
-          <button
+          </button>}
+          {canManage && <button
             onClick={() => handleEdit(item)}
             className="text-gray-600 hover:text-gray-800"
             title="Edit"
           >
             <Pencil className="h-4 w-4" />
-          </button>
+          </button>}
           <button
             onClick={() => handleDelete(item)}
             className="text-red-600 hover:text-red-800"

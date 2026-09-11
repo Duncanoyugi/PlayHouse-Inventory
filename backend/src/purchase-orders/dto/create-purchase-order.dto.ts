@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsArray, ValidateNested, IsOptional, IsDateString, Min, IsNumber } from 'class-validator';
+import { IsString, IsArray, ValidateNested, IsOptional, IsDateString, Min, IsNumber, ArrayNotEmpty } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class PurchaseOrderItemDto {
@@ -51,6 +51,7 @@ export class CreatePurchaseOrderDto {
     description: 'PO items',
   })
   @IsArray()
+  @ArrayNotEmpty({ message: 'At least one purchase order item is required' })
   @ValidateNested({ each: true })
   @Type(() => PurchaseOrderItemDto)
   items: PurchaseOrderItemDto[];

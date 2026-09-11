@@ -10,6 +10,7 @@ import { AuthLayout } from '../layouts/AuthLayout'
 
 // Pages
 import { LoginPage } from '../pages/LoginPage'
+import { LandingPage } from '../pages/LandingPage'
 import { DashboardPage } from '../pages/DashboardPage'
 import { ProductsPage } from '../pages/ProductsPage'
 import { CategoriesPage } from '../pages/CategoriesPage'
@@ -17,6 +18,7 @@ import { BrandsPage } from '../pages/BrandsPage'
 import { InventoryPage } from '../pages/InventoryPage'
 import { StockMovementsPage } from '../pages/StockMovementsPage'
 import { SuppliersPage } from '../pages/SuppliersPage'
+import { LocationsPage } from '../pages/LocationsPage'
 import { PurchaseOrdersPage } from '../pages/PurchaseOrdersPage'
 import { GoodsReceiptsPage } from '../pages/GoodsReceiptsPage'
 import { ReportsPage } from '../pages/ReportsPage'
@@ -32,6 +34,7 @@ export const AppRouter = () => {
     <Routes>
       {/* Public Routes */}
       <Route element={<PublicRoute />}>
+        <Route path={ROUTES.LANDING} element={<LandingPage />} />
         <Route element={<AuthLayout />}>
           <Route path={ROUTES.LOGIN} element={<LoginPage />} />
         </Route>
@@ -47,6 +50,7 @@ export const AppRouter = () => {
           <Route path={ROUTES.INVENTORY} element={<InventoryPage />} />
           <Route path={ROUTES.STOCK_MOVEMENTS} element={<StockMovementsPage />} />
           <Route path={ROUTES.SUPPLIERS} element={<SuppliersPage />} />
+          <Route path={ROUTES.LOCATIONS} element={<LocationsPage />} />
           <Route path={ROUTES.PURCHASE_ORDERS} element={<PurchaseOrdersPage />} />
           <Route path={ROUTES.GOODS_RECEIPTS} element={<GoodsReceiptsPage />} />
           <Route path={ROUTES.REPORTS} element={<ReportsPage />} />

@@ -12,7 +12,7 @@ export const usersApi = {
   create: (data: { email: string; fullName: string; password: string; role: string; status?: string }) => 
     apiClient.post<User>(API_ENDPOINTS.users, data),
 
-  update: (id: string, data: { email?: string; fullName?: string; role?: string; status?: string }) => 
+  update: (id: string, data: { email?: string; fullName?: string; password?: string; role?: string; status?: string }) => 
     apiClient.patch<User>(`${API_ENDPOINTS.users}/${id}`, data),
 
   disable: (id: string) => 

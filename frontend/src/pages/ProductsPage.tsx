@@ -10,6 +10,7 @@ import { Button } from '../components/common/Buttons/Button'
 import { Modal } from '../components/common/Modal/Modal'
 import LoadingSpinner from '../components/common/Loading/LoadingSpinner'
 import toast from 'react-hot-toast'
+import { useAuth } from '../contexts/AuthContext'
 
 export const ProductsPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -20,6 +21,8 @@ export const ProductsPage = () => {
     status: '',
     page: 1,
   })
+  const { user } = useAuth()
+  const canManage = user?.role === 'ADMIN'
 
   const { data: productsData, isLoading: productsLoading, refetch } = useQuery({
     queryKey: ['products', filters],
@@ -58,7 +61,7 @@ export const ProductsPage = () => {
           <p className="text-sm font-semibold uppercase tracking-widest text-cyan-700">Catalog</p>
           <h1 className="text-2xl font-bold text-gray-900">Products</h1>
         </div>
-        <Button onClick={() => setIsModalOpen(true)} className="w-full sm:w-auto">Add Product</Button>
+        {canManage && <Button onClick={() => setIsModalOpen(true)} className="w-full sm:w-auto">Add Product</Button>}
       </div>
 
       <ProductFilters
@@ -77,16 +80,17 @@ export const ProductsPage = () => {
         }}
         onPageChange={(page: number) => setFilters({ ...filters, page })}
         onRefresh={refetch}
+        canManage={canManage}
       />
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Add Product">
+      {canManage && <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Add Product">
         <ProductForm
           onSubmit={handleCreateProduct}
           onCancel={() => setIsModalOpen(false)}
           categories={categoriesData || []}
           brands={brandsData || []}
         />
-      </Modal>
+      </Modal>}
     </div>
   )
 }

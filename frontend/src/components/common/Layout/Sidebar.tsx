@@ -13,10 +13,14 @@ import {
   BarChart3,
   Shield,
   UserCog,
+  MapPin,
+  Tags,
+  Badge,
   X,
+  type LucideIcon,
 } from 'lucide-react'
 
-const iconMap: Record<string, any> = {
+const iconMap: Record<string, LucideIcon> = {
   Dashboard: LayoutDashboard,
   Package: Package,
   Box: Box,
@@ -27,6 +31,9 @@ const iconMap: Record<string, any> = {
   BarChart3: BarChart3,
   Shield: Shield,
   UserCog: UserCog,
+  MapPin: MapPin,
+  Tags: Tags,
+  Badge: Badge,
 }
 
 interface SidebarProps {
