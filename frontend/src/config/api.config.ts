@@ -1,6 +1,8 @@
+const apiUrl = import.meta.env.VITE_API_URL
+
 export const API_CONFIG = {
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1',
-  timeout: parseInt(import.meta.env.VITE_API_TIMEOUT || '30000'),
+  baseURL: apiUrl || 'http://localhost:3000/api/v1',
+  timeout: Number(import.meta.env.VITE_API_TIMEOUT) || 30000,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
