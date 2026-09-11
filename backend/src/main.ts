@@ -7,44 +7,37 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import { DatabaseLoggingInterceptor } from './common/interceptors/database-logging.interceptor';
 import { PrismaService } from './prisma/prisma.service';
 
-async function bootstrap() {
+async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
-  
+
   try {
     const app = await NestFactory.create(AppModule);
 
-    // Get Prisma service for health check
-    const prismaService = app.get(PrismaService);
-    
-    // Check database connection
-    logger.log('🔍 Checking database connection...');
-    const health = await prismaService.healthCheck();
-    
-    if (health.connected) {
-      logger.log(`✅ Database connected (${health.latency}ms)`);
-      
-      // Get database stats
-      const stats = await prismaService.getDatabaseStats();
-      if (stats && Array.isArray(stats) && stats.length > 0) {
-        logger.log(`📊 Database: ${stats[0].database_name} (${stats[0].database_size})`);
-        logger.log(`📦 Schema: ${stats[0].schema_name}`);
-        logger.log(`🐘 PostgreSQL: ${stats[0].postgres_version}`);
-      }
-    } else {
-      logger.error(`❌ Database connection failed: ${health.error}`);
-      logger.warn('⚠️ The application will continue, but database operations will fail');
-    }
-
-    // Global prefix
+    // --------------------------------------------------
+    // GLOBAL API PREFIX
+    // --------------------------------------------------
     app.setGlobalPrefix('api/v1');
 
-    // Enable CORS
+    // --------------------------------------------------
+    // CORS
+    // --------------------------------------------------
+    const corsOrigin = process.env.CORS_ORIGIN;
+
+    const allowedOrigins = corsOrigin
+      ? corsOrigin
+          .split(',')
+          .map((origin) => origin.trim())
+          .filter((origin) => origin.length > 0)
+      : ['http://localhost:5173'];
+
     app.enableCors({
-      origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+      origin: allowedOrigins,
       credentials: true,
     });
 
-    // Global validation pipe
+    // --------------------------------------------------
+    // GLOBAL VALIDATION
+    // --------------------------------------------------
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -56,19 +49,27 @@ async function bootstrap() {
       }),
     );
 
-    // Global exception filter
+    // --------------------------------------------------
+    // GLOBAL EXCEPTION FILTER
+    // --------------------------------------------------
     app.useGlobalFilters(new GlobalExceptionFilter());
 
-    // Global response interceptor
+    // --------------------------------------------------
+    // GLOBAL RESPONSE INTERCEPTORS
+    // --------------------------------------------------
     app.useGlobalInterceptors(
       new ResponseInterceptor(),
-      new DatabaseLoggingInterceptor(), // Add database logging interceptor
+      new DatabaseLoggingInterceptor(),
     );
 
-    // Swagger documentation
+    // --------------------------------------------------
+    // SWAGGER
+    // --------------------------------------------------
     const config = new DocumentBuilder()
       .setTitle('Playhouse Inventory API')
-      .setDescription('Inventory Management System for Playhouse Electronics')
+      .setDescription(
+        'Inventory Management System for Playhouse Electronics',
+      )
       .setVersion('1.0')
       .addBearerAuth()
       .addTag('auth')
@@ -86,31 +87,141 @@ async function bootstrap() {
       .build();
 
     const document = SwaggerModule.createDocument(app, config);
+
     SwaggerModule.setup('api/docs', app, document);
 
-    const port = process.env.PORT || 3000;
-    await app.listen(port);
+    // --------------------------------------------------
+    // DATABASE HEALTH CHECK
+    // --------------------------------------------------
+    const prismaService = app.get(PrismaService);
 
-    logger.log(`🚀 Playhouse Inventory API running on: http://localhost:${port}`);
-    logger.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
-    
-    // Log all available routes
-    const httpInstance = app.getHttpAdapter().getInstance();
+    logger.log('🔍 Checking database connection...');
+
+    const health = await prismaService.healthCheck();
+
+    if (health.connected) {
+      logger.log(`✅ Database connected (${health.latency}ms)`);
+
+      try {
+        const stats = await prismaService.getDatabaseStats();
+
+        if (stats && Array.isArray(stats) && stats.length > 0) {
+          logger.log(
+            `📊 Database: ${stats[0].database_name} (${stats[0].database_size})`,
+          );
+
+          logger.log(`📦 Schema: ${stats[0].schema_name}`);
+          logger.log(`🐘 PostgreSQL: ${stats[0].postgres_version}`);
+        }
+      } catch (error: unknown) {
+        logger.warn(
+          `⚠️ Unable to retrieve database statistics: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    } else {
+      logger.error(`❌ Database connection failed: ${health.error}`);
+      logger.warn(
+        '⚠️ The application will continue, but database operations may fail',
+      );
+    }
+
+    // --------------------------------------------------
+    // SERVER
+    // --------------------------------------------------
+    const port = Number(process.env.PORT) || 3000;
+
+    /*
+     * Render provides PORT automatically.
+     *
+     * 0.0.0.0 allows the application to accept
+     * connections from outside the container.
+     */
+    await app.listen(port, '0.0.0.0');
+
+    const externalUrl =
+      process.env.RENDER_EXTERNAL_URL ||
+      `http://localhost:${port}`;
+
+    logger.log(`🚀 Playhouse Inventory API running on: ${externalUrl}`);
+    logger.log(`📚 Swagger documentation: ${externalUrl}/api/docs`);
+    logger.log(
+      `🌐 CORS allowed origins: ${allowedOrigins.join(', ')}`,
+    );
+
+    // --------------------------------------------------
+    // ROUTE LOGGING
+    // --------------------------------------------------
+    const httpAdapter = app.getHttpAdapter();
+    const httpInstance = httpAdapter.getInstance();
+
     const router = httpInstance._router || httpInstance.router;
-    const routes = (router?.stack || [])
-      .filter((layer: any) => layer.route)
-      .map((layer: any) => ({
-        method: Object.keys(layer.route.methods)[0].toUpperCase(),
-        path: layer.route.path,
-      }));
-    
-    logger.log(`📋 Total API endpoints: ${routes.length}`);
-    
-  } catch (error) {
+
+    if (router?.stack) {
+      const routes = router.stack
+        .filter(
+          (
+            layer: {
+              route?: {
+                methods: Record<string, boolean>;
+                path: string;
+              };
+            },
+          ): boolean => Boolean(layer.route),
+        )
+        .map(
+          (
+            layer: {
+              route?: {
+                methods: Record<string, boolean>;
+                path: string;
+              };
+            },
+          ) => {
+            const route = layer.route;
+
+            if (!route) {
+              return null;
+            }
+
+            const methods = Object.keys(route.methods)
+              .filter((method) => route.methods[method])
+              .map((method) => method.toUpperCase())
+              .join(', ');
+
+            return {
+              method: methods,
+              path: route.path,
+            };
+          },
+        )
+        .filter(
+          (
+            route: { method: string; path: string } | null,
+          ): route is {
+            method: string;
+            path: string;
+          } => route !== null,
+        );
+
+      logger.log(`📋 Total API endpoints: ${routes.length}`);
+    }
+  } catch (error: unknown) {
     logger.error('❌ Application failed to start');
-    logger.error(error instanceof Error ? error.message : String(error));
+
+    if (error instanceof Error) {
+      logger.error(error.message);
+
+      if (error.stack) {
+        logger.error(error.stack);
+      }
+    } else {
+      logger.error(String(error));
+    }
+
     process.exit(1);
   }
 }
 
-bootstrap();
+void bootstrap();
