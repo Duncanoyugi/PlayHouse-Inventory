@@ -1,11 +1,54 @@
-﻿import { useQuery } from '@tanstack/react-query'
+﻿import { useState } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { PageHeader } from '../components/common/PageHeader'
+import { MovementTable } from '../components/stock-movements/MovementTable'
+import { Pagination } from '../components/common/Pagination/Pagination'
+import { FormSelect } from '../components/common/Forms/FormSelect'
+import { FormInput } from '../components/common/Forms/FormInput'
+import { ProductPicker } from '../components/common/ProductPicker'
+import { Button } from '../components/common/Buttons/Button'
 import { stockMovementsApi } from '../api/endpoints/stock-movements.api'
-import { ActivityTable } from '../components/common/ActivityTable'
-import LoadingSpinner from '../components/common/Loading/LoadingSpinner'
+import { locationsApi } from '../api/endpoints/locations.api'
+import { MOVEMENT_TYPES } from '../constants/statuses'
+import { titleCase } from '../utils/format-utils'
+import { usePageTitle } from '../hooks/usePageTitle'
+import type { MovementType, Product } from '../types'
 
-export const StockMovementsPage = () => {
-  const query = useQuery({ queryKey: ['stock-movements'], queryFn: () => stockMovementsApi.getAll({ page: 1, limit: 100 }) })
-  if (query.isLoading) return <LoadingSpinner />
-  const rows = query.data?.items || []
-  return <div className="space-y-6"><div><p className="text-sm font-semibold uppercase tracking-widest text-cyan-700">Traceability</p><h1 className="mt-1 text-3xl font-semibold text-slate-950">Stock movements</h1><p className="mt-2 text-sm text-slate-500">Every quantity change, reason, and resulting balance in one timeline.</p></div><ActivityTable title="Movement ledger" description={`${query.data?.total || rows.length} recorded movements`} rows={rows} onRefresh={() => void query.refetch()} columns={[{ key: 'createdAt', label: 'Date', render: (row) => new Date(row.createdAt).toLocaleString() }, { key: 'type', label: 'Type', render: (row) => <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-700">{row.type}</span> }, { key: 'product', label: 'Product', render: (row) => row.product?.name || row.productId }, { key: 'quantity', label: 'Quantity' }, { key: 'previousQuantity', label: 'Before' }, { key: 'newQuantity', label: 'After' }, { key: 'reason', label: 'Reason' }]} /></div>
+export default function StockMovementsPage() {
+  usePageTitle('Stock movements')
+  const [type, setType] = useState<'' | MovementType>('')
+  const [locationId, setLocationId] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [product, setProduct] = useState<Product | null>(null)
+  const [page, setPage] = useState(1)
+  const limit = 20
+
+  const locations = useQuery({ queryKey: ['locations'], queryFn: () => locationsApi.getAll() })
+  const list = useQuery({
+    queryKey: ['stock-movements', { type, locationId, fromDate, toDate, product: product?.id, page }],
+    queryFn: () => stockMovementsApi.getAll({ type: type || undefined, locationId: locationId || undefined, productId: product?.id, fromDate: fromDate || undefined, toDate: toDate || undefined, page, limit }),
+    placeholderData: keepPreviousData,
+  })
+
+  const filtered = !!(type || locationId || fromDate || toDate || product)
+  const clear = () => { setType(''); setLocationId(''); setFromDate(''); setToDate(''); setProduct(null); setPage(1) }
+
+  return (
+    <>
+      <PageHeader title="Stock movements" description="A permanent record of everything that came in, went out or was corrected." />
+      <section className="card overflow-hidden">
+        <div className="grid gap-3 border-b border-line p-4 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="sm:col-span-2"><ProductPicker value={product} onChange={(p) => { setProduct(p); setPage(1) }} placeholder="Filter by product" /></div>
+          <FormSelect aria-label="Type" placeholder="All types" value={type} onChange={(e) => { setType(e.target.value as '' | MovementType); setPage(1) }} options={MOVEMENT_TYPES.map((t) => ({ value: t, label: titleCase(t) }))} />
+          <FormSelect aria-label="Location" placeholder="All locations" value={locationId} onChange={(e) => { setLocationId(e.target.value); setPage(1) }} options={(locations.data ?? []).map((l) => ({ value: l.id, label: l.name }))} />
+          <FormInput aria-label="From date" type="date" value={fromDate} max={toDate || undefined} onChange={(e) => { setFromDate(e.target.value); setPage(1) }} />
+          <FormInput aria-label="To date" type="date" value={toDate} min={fromDate || undefined} onChange={(e) => { setToDate(e.target.value); setPage(1) }} />
+          {filtered && <div className="sm:col-span-2 lg:col-span-6"><Button variant="ghost" size="sm" onClick={clear}>Clear filters</Button></div>}
+        </div>
+        <MovementTable rows={list.data?.items ?? []} isLoading={list.isLoading} isError={list.isError} onRetry={() => void list.refetch()} />
+        {list.data && <Pagination page={list.data.page} totalPages={list.data.totalPages} total={list.data.total} limit={limit} onPageChange={setPage} />}
+      </section>
+    </>
+  )
 }

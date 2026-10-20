@@ -6,27 +6,24 @@ import {
   Patch,
   Param,
   Delete,
-  UseGuards,
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { ProductQueryDto } from './dto/product-query.dto';
 import { Roles } from '../common/decorators/roles.decorator';
-import { Public } from '../common/decorators/public.decorator';
+import { ALL_ROLES, ROLE } from '../common/constants';
 
 @ApiTags('products')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Post()
-  @Roles('ADMIN')
+  @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Create a new product' })
   @ApiResponse({ status: 201, description: 'Product created successfully' })
   @ApiResponse({ status: 409, description: 'SKU already exists' })
@@ -34,7 +31,7 @@ export class ProductsController {
     return this.productsService.create(createProductDto);
   }
 
-  @Public()
+  @Roles(...ALL_ROLES)
   @Get()
   @ApiOperation({ summary: 'Get all products with filters' })
   @ApiResponse({ status: 200, description: 'Products retrieved' })
@@ -44,25 +41,11 @@ export class ProductsController {
   @ApiQuery({ name: 'status', required: false, enum: ['ACTIVE', 'INACTIVE', 'DISCONTINUED'] })
   @ApiQuery({ name: 'page', required: false, default: 1 })
   @ApiQuery({ name: 'limit', required: false, default: 20 })
-  findAll(
-    @Query('search') search?: string,
-    @Query('categoryId') categoryId?: string,
-    @Query('brandId') brandId?: string,
-    @Query('status') status?: string,
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 20,
-  ) {
-    return this.productsService.findAll({
-      search,
-      categoryId,
-      brandId,
-      status,
-      page: +page,
-      limit: +limit,
-    });
+  findAll(@Query() query: ProductQueryDto) {
+    return this.productsService.findAll(query);
   }
 
-  @Public()
+  @Roles(...ALL_ROLES)
   @Get(':id')
   @ApiOperation({ summary: 'Get a product by ID' })
   @ApiResponse({ status: 200, description: 'Product retrieved' })
@@ -71,7 +54,7 @@ export class ProductsController {
     return this.productsService.findOne(id);
   }
 
-  @Public()
+  @Roles(...ALL_ROLES)
   @Get('sku/:sku')
   @ApiOperation({ summary: 'Get a product by SKU' })
   @ApiResponse({ status: 200, description: 'Product retrieved' })
@@ -81,7 +64,7 @@ export class ProductsController {
   }
 
   @Patch(':id')
-  @Roles('ADMIN')
+  @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Update a product' })
   @ApiResponse({ status: 200, description: 'Product updated' })
   @ApiResponse({ status: 404, description: 'Product not found' })
@@ -90,7 +73,7 @@ export class ProductsController {
   }
 
   @Delete(':id')
-  @Roles('ADMIN')
+  @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Delete a product (soft delete)' })
   @ApiResponse({ status: 200, description: 'Product deleted' })
   @ApiResponse({ status: 404, description: 'Product not found' })

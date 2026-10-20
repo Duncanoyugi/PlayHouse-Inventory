@@ -1,141 +1,140 @@
 @import "tailwindcss";
 
+/* Dark mode is driven by <html data-theme="dark"> (set before first paint in index.html). */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
 @theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --color-brand-50: #ecfeff;
+  --color-brand-100: #cffafe;
+  --color-brand-200: #a5f3fc;
+  --color-brand-300: #67e8f9;
+  --color-brand-400: #22d3ee;
+  --color-brand-500: #06b6d4;
+  --color-brand-600: #0891b2;
+  --color-brand-700: #0e7490;
+  --color-brand-800: #155e75;
+  --color-brand-900: #164e63;
+  --color-brand-950: #083344;
+
+  /* Legacy names kept so any older markup keeps working. */
   --color-primary-50: #ecfeff;
   --color-primary-100: #cffafe;
   --color-primary-500: #06b6d4;
   --color-primary-600: #0891b2;
   --color-primary-700: #0e7490;
+
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px -12px rgb(15 23 42 / 0.12);
+  --shadow-pop: 0 20px 50px -12px rgb(15 23 42 / 0.35);
+}
+
+/* Semantic tokens: components use bg-surface / text-fg / border-line and switch theme automatically. */
+:root {
+  --bg: #f4f6fa;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --line: #e2e8f0;
+  --fg: #0f172a;
+  --muted: #64748b;
+  --nav-bg: #0b1626;
+  --nav-fg: #b6c4d6;
+  --nav-active: rgb(34 211 238 / 0.14);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #08101d;
+  --surface: #101a2c;
+  --surface-2: #162238;
+  --line: #22304a;
+  --fg: #e7eef8;
+  --muted: #93a4bb;
+  --nav-bg: #060d18;
+  --nav-fg: #9fb0c6;
+  --nav-active: rgb(34 211 238 / 0.16);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-nav: var(--nav-bg);
+  --color-nav-fg: var(--nav-fg);
+  --color-nav-active: var(--nav-active);
 }
 
 @layer base {
-  :root {
-    --background: #f8fafc;
-    --foreground: #0f172a;
-  }
-
-  * {
-    border-color: #e2e8f0;
-  }
-
+  html { -webkit-text-size-adjust: 100%; }
+  * { border-color: var(--line); }
   body {
-    background: var(--background);
-    color: var(--foreground);
-    font-family: Georgia, 'Times New Roman', serif;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
     font-synthesis: none;
     text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
   }
-
-  #root {
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
-
-  html[data-theme='dark'] {
-    --background: #0f1720;
-    --foreground: #e5edf4;
-  }
-
-  html[data-theme='dark'] body,
-  html[data-theme='dark'] .bg-gray-50 { background: #0f1720; color: #e5edf4; }
-  html[data-theme='dark'] .bg-white { background: #17232e; }
-  html[data-theme='dark'] .text-gray-900,
-  html[data-theme='dark'] .text-slate-950,
-  html[data-theme='dark'] .text-slate-900 { color: #edf4f8; }
-  html[data-theme='dark'] .text-gray-700,
-  html[data-theme='dark'] .text-slate-700,
-  html[data-theme='dark'] .text-slate-600 { color: #c1ced8; }
-  html[data-theme='dark'] .text-gray-500,
-  html[data-theme='dark'] .text-slate-500 { color: #91a2b0; }
-  html[data-theme='dark'] .border-gray-200,
-  html[data-theme='dark'] .border-slate-200,
-  html[data-theme='dark'] .border-slate-100 { border-color: #2d3d4b; }
-  html[data-theme='dark'] input,
-  html[data-theme='dark'] textarea,
-  html[data-theme='dark'] select { color: #edf4f8; background: #13202b; border-color: #3a4c5c; }
-  html[data-theme='dark'] .bg-gray-50,
-  html[data-theme='dark'] .bg-slate-50 { background: #13202b; }
+  #root { min-height: 100vh; }
+  ::selection { background: rgb(6 182 212 / 0.25); }
+  :focus-visible { outline: 2px solid var(--color-brand-500); outline-offset: 2px; }
+  button:not(:disabled), [role="button"]:not([aria-disabled="true"]) { cursor: pointer; }
 }
 
 @layer components {
-  .btn-primary {
-    background: #0891b2;
-    color: white;
-    padding: 0.5rem 1rem;
-    border-radius: 0.5rem;
-    font-weight: 600;
-    transition: background 160ms ease;
-  }
+  .card { @apply rounded-2xl border border-line bg-surface shadow-card; }
+  .card-pad { @apply p-5 sm:p-6; }
 
-  .btn-secondary {
-    background: #e2e8f0;
-    color: #1e293b;
-    padding: 0.5rem 1rem;
-    border-radius: 0.5rem;
-    font-weight: 600;
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-semibold
+           transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100;
   }
+  .btn-sm { @apply rounded-lg px-3 py-1.5 text-xs; }
+  .btn-lg { @apply px-6 py-3 text-base; }
+  .btn-primary { @apply bg-brand-600 text-white shadow-sm hover:bg-brand-700; }
+  .btn-secondary { @apply border border-line bg-surface text-fg hover:bg-surface-2; }
+  .btn-ghost { @apply text-muted hover:bg-surface-2 hover:text-fg; }
+  .btn-danger { @apply bg-rose-600 text-white hover:bg-rose-700; }
+  .btn-success { @apply bg-emerald-600 text-white hover:bg-emerald-700; }
+  .btn-warning { @apply bg-amber-500 text-white hover:bg-amber-600; }
 
-  .btn-danger {
-    background: #dc2626;
-    color: white;
-    padding: 0.5rem 1rem;
-    border-radius: 0.5rem;
-    font-weight: 600;
+  .label { @apply mb-1.5 block text-sm font-medium text-fg; }
+  .hint { @apply mt-1 text-xs text-muted; }
+  .field-error { @apply mt-1 text-xs font-medium text-rose-600 dark:text-rose-400; }
+  .input {
+    @apply block w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-sm text-fg placeholder:text-muted/70
+           transition focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15
+           disabled:cursor-not-allowed disabled:bg-surface-2 disabled:opacity-70;
   }
+  .input-error { @apply border-rose-500 focus:border-rose-500 focus:ring-rose-500/15; }
 
-  .btn-success {
-    background: #059669;
-    color: white;
-    padding: 0.5rem 1rem;
-    border-radius: 0.5rem;
-    font-weight: 600;
-  }
+  .badge { @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset; }
+  .badge-green { @apply bg-emerald-500/10 text-emerald-700 ring-emerald-500/25 dark:text-emerald-300; }
+  .badge-amber { @apply bg-amber-500/10 text-amber-700 ring-amber-500/30 dark:text-amber-300; }
+  .badge-red { @apply bg-rose-500/10 text-rose-700 ring-rose-500/25 dark:text-rose-300; }
+  .badge-blue { @apply bg-sky-500/10 text-sky-700 ring-sky-500/25 dark:text-sky-300; }
+  .badge-violet { @apply bg-violet-500/10 text-violet-700 ring-violet-500/25 dark:text-violet-300; }
+  .badge-gray { @apply bg-slate-500/10 text-slate-700 ring-slate-500/20 dark:text-slate-300; }
 
-  .input-field {
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid #cbd5e1;
-    border-radius: 0.5rem;
-    outline: none;
-  }
+  .th { @apply whitespace-nowrap px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted; }
+  .td { @apply px-4 py-3.5 text-sm text-fg; }
 
-  .card {
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 0.75rem;
-    padding: 1.5rem;
-    box-shadow: 0 10px 30px rgb(15 23 42 / 0.06);
-  }
+  .skeleton { @apply animate-pulse rounded-lg bg-surface-2; }
+  .page-title { @apply text-2xl font-bold tracking-tight text-fg sm:text-3xl; }
+}
 
-  .badge {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    border-radius: 999px;
-  }
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.animate-pop { animation: pop-in 160ms ease-out both; }
+.animate-fade { animation: fade-in 160ms ease-out both; }
 
-  .badge-success {
-    background: #dcfce7;
-    color: #166534;
-  }
-
-  .badge-warning {
-    background: #fef3c7;
-    color: #92400e;
-  }
-
-  .badge-danger {
-    background: #fee2e2;
-    color: #991b1b;
-  }
-
-  .badge-info {
-    background: #dbeafe;
-    color: #1e40af;
-  }
-
-  .badge-gray {
-    background: #f1f5f9;
-    color: #334155;
-  }
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

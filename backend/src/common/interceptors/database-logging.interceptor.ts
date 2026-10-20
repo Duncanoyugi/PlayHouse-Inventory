@@ -1,28 +1,33 @@
-import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger, HttpException } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
 
+const SLOW_REQUEST_MS = 1000;
+
+/**
+ * Logs slow requests and genuine server faults. Client errors (4xx: validation,
+ * wrong password, forbidden...) are expected traffic and are not logged as errors.
+ */
 @Injectable()
 export class DatabaseLoggingInterceptor implements NestInterceptor {
-  private readonly logger = new Logger('DatabaseQuery');
+  private readonly logger = new Logger('Http');
 
-  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    const request = context.switchToHttp().getRequest();
-    const { method, url } = request;
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    const { method, url } = context.switchToHttp().getRequest();
     const start = Date.now();
 
     return next.handle().pipe(
       tap(() => {
         const duration = Date.now() - start;
-        // Only log if query took more than 100ms
-        if (duration > 100) {
-          this.logger.warn(`⚠️ Slow operation: ${method} ${url} - ${duration}ms`);
+        if (duration > SLOW_REQUEST_MS) {
+          this.logger.warn(`Slow request: ${method} ${url} took ${duration}ms`);
         }
       }),
       catchError((error) => {
-        const duration = Date.now() - start;
-        this.logger.error(`❌ Failed operation: ${method} ${url} - ${duration}ms`);
-        this.logger.error(error.message);
+        const isClientError = error instanceof HttpException && error.getStatus() < 500;
+        if (!isClientError) {
+          this.logger.error(`Failed request: ${method} ${url} after ${Date.now() - start}ms - ${error?.message}`);
+        }
         throw error;
       }),
     );

@@ -7,9 +7,10 @@ export interface Product {
   sku: string
   externalProductId?: string
   name: string
-  description?: string
-  barcode?: string
-  costPrice: number
+  description?: string | null
+  barcode?: string | null
+  /** Decimal columns arrive as strings. Not sent to store keepers. */
+  costPrice?: number | string
   reorderLevel: number
   status: Status
   categoryId: string
@@ -35,17 +36,7 @@ export interface CreateProductDto {
   status?: Status
 }
 
-export interface UpdateProductDto {
-  sku?: string
-  name?: string
-  description?: string
-  barcode?: string
-  costPrice?: number
-  reorderLevel?: number
-  categoryId?: string
-  brandId?: string
-  status?: Status
-}
+export type UpdateProductDto = Partial<CreateProductDto>
 
 export interface ProductFilters {
   search?: string

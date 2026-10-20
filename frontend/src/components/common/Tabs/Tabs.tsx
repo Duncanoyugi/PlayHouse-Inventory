@@ -1,36 +1,28 @@
-import React from 'react'
 import { clsx } from 'clsx'
 
-interface Tab {
-  id: string
-  label: string
+interface TabsProps<T extends string> {
+  tabs: { id: T; label: string; icon?: React.ReactNode }[]
+  active: T
+  onChange: (id: T) => void
 }
 
-interface TabsProps {
-  tabs: Tab[]
-  activeTab: string
-  onTabChange: (tabId: string) => void
-}
-
-export const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onTabChange }) => {
+export function Tabs<T extends string>({ tabs, active, onChange }: TabsProps<T>) {
   return (
-    <div className="border-b border-gray-200">
-      <nav className="-mb-px flex space-x-8">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => onTabChange(tab.id)}
-            className={clsx(
-              'py-2 px-1 border-b-2 text-sm font-medium transition-colors',
-              activeTab === tab.id
-                ? 'border-primary-500 text-primary-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
+    <div role="tablist" className="inline-flex max-w-full gap-1 overflow-x-auto rounded-xl border border-line bg-surface-2/70 p-1">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          role="tab"
+          aria-selected={active === t.id}
+          onClick={() => onChange(t.id)}
+          className={clsx(
+            'inline-flex items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-semibold transition',
+            active === t.id ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg',
+          )}
+        >
+          {t.icon}{t.label}
+        </button>
+      ))}
     </div>
   )
 }

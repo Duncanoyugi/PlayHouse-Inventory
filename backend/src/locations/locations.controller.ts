@@ -6,25 +6,21 @@ import {
   Patch,
   Param,
   Delete,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { LocationsService } from './locations.service';
 import { CreateLocationDto } from './dto/create-location.dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-import { Public } from '../common/decorators/public.decorator';
+import { ALL_ROLES, ROLE } from '../common/constants';
 
 @ApiTags('locations')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('locations')
 export class LocationsController {
   constructor(private readonly locationsService: LocationsService) {}
 
   @Post()
-  @Roles('ADMIN')
+  @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Create a new location' })
   @ApiResponse({ status: 201, description: 'Location created' })
   @ApiResponse({ status: 409, description: 'Location name already exists' })
@@ -32,7 +28,7 @@ export class LocationsController {
     return this.locationsService.create(createLocationDto);
   }
 
-  @Public()
+  @Roles(...ALL_ROLES)
   @Get()
   @ApiOperation({ summary: 'Get all locations' })
   @ApiResponse({ status: 200, description: 'Locations retrieved' })
@@ -40,7 +36,7 @@ export class LocationsController {
     return this.locationsService.findAll();
   }
 
-  @Public()
+  @Roles(...ALL_ROLES)
   @Get(':id')
   @ApiOperation({ summary: 'Get a location by ID' })
   @ApiResponse({ status: 200, description: 'Location retrieved' })
@@ -50,7 +46,7 @@ export class LocationsController {
   }
 
   @Patch(':id')
-  @Roles('ADMIN')
+  @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Update a location' })
   @ApiResponse({ status: 200, description: 'Location updated' })
   @ApiResponse({ status: 404, description: 'Location not found' })
@@ -59,7 +55,7 @@ export class LocationsController {
   }
 
   @Delete(':id')
-  @Roles('ADMIN')
+  @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Delete a location' })
   @ApiResponse({ status: 200, description: 'Location deleted' })
   @ApiResponse({ status: 404, description: 'Location not found' })

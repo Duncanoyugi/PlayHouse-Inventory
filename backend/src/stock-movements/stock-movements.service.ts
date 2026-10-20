@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { buildPage, dateRange, normalizePagination } from '../common/utils/pagination';
 
 @Injectable()
 export class StockMovementsService {
@@ -15,17 +16,8 @@ export class StockMovementsService {
     page?: number;
     limit?: number;
   }) {
-    const {
-      productId,
-      locationId,
-      type,
-      userId,
-      fromDate,
-      toDate,
-      page = 1,
-      limit = 20,
-    } = filters;
-    const skip = (page - 1) * limit;
+    const { productId, locationId, type, userId, fromDate, toDate } = filters;
+    const { page, limit, skip } = normalizePagination(filters.page, filters.limit);
 
     const where: any = {};
 
@@ -45,15 +37,8 @@ export class StockMovementsService {
       where.createdById = userId;
     }
 
-    if (fromDate || toDate) {
-      where.createdAt = {};
-      if (fromDate) {
-        where.createdAt.gte = new Date(fromDate);
-      }
-      if (toDate) {
-        where.createdAt.lte = new Date(toDate);
-      }
-    }
+    const range = dateRange(fromDate, toDate);
+    if (range) where.createdAt = range;
 
     const [items, total] = await Promise.all([
       this.prisma.stockMovement.findMany({
@@ -85,15 +70,7 @@ export class StockMovementsService {
       this.prisma.stockMovement.count({ where }),
     ]);
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrevious: page > 1,
-    };
+    return buildPage(items, total, page, limit);
   }
 
   async findOne(id: string) {
@@ -128,8 +105,8 @@ export class StockMovementsService {
     return movement;
   }
 
-  async findByProduct(productId: string, page: number = 1, limit: number = 20) {
-    const skip = (page - 1) * limit;
+  async findByProduct(productId: string, pageInput?: number, limitInput?: number) {
+    const { page, limit, skip } = normalizePagination(pageInput, limitInput);
 
     const [items, total] = await Promise.all([
       this.prisma.stockMovement.findMany({
@@ -155,19 +132,11 @@ export class StockMovementsService {
       this.prisma.stockMovement.count({ where: { productId } }),
     ]);
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrevious: page > 1,
-    };
+    return buildPage(items, total, page, limit);
   }
 
-  async findByLocation(locationId: string, page: number = 1, limit: number = 20) {
-    const skip = (page - 1) * limit;
+  async findByLocation(locationId: string, pageInput?: number, limitInput?: number) {
+    const { page, limit, skip } = normalizePagination(pageInput, limitInput);
 
     const [items, total] = await Promise.all([
       this.prisma.stockMovement.findMany({
@@ -209,14 +178,6 @@ export class StockMovementsService {
       }),
     ]);
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrevious: page > 1,
-    };
+    return buildPage(items, total, page, limit);
   }
 }

@@ -1,136 +1,95 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
-import { LoginDto } from './dto/login.dto';
-import { ConfigService } from '@nestjs/config';
+import { ChangePasswordDto, LoginDto } from './dto/login.dto';
+import { BCRYPT_ROUNDS } from '../common/constants';
+
+// Compared against when the e-mail is unknown so response time does not reveal
+// whether an account exists.
+const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10);
+
+const PROFILE_SELECT = {
+  id: true,
+  email: true,
+  fullName: true,
+  role: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-    private configService: ConfigService,
   ) {}
 
-  async login(loginDto: LoginDto) {
-    const { email, password } = loginDto;
+  async login(dto: LoginDto) {
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { email } });
 
-    // Find user by email
-    const user = await this.prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (!user) {
+    const passwordOk = await bcrypt.compare(dto.password, user?.passwordHash ?? DUMMY_HASH);
+    if (!user || !passwordOk) {
       throw new UnauthorizedException('Invalid email or password');
     }
-
-    // Check if user is disabled
+    // Only reveal the disabled state to someone who proved they know the password.
     if (user.status === 'DISABLED') {
-      throw new UnauthorizedException('Account has been disabled');
+      throw new UnauthorizedException('Your account has been disabled. Contact the manager');
     }
 
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    const accessToken = this.sign(user);
+    const { passwordHash: _omit, ...safeUser } = user;
 
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid email or password');
-    }
+    await this.prisma.auditLog
+      .create({ data: { userId: user.id, action: 'LOGIN', entity: 'User', entityId: user.id } })
+      .catch(() => undefined);
 
-    // Generate token
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-    };
-
-    const accessToken = this.jwtService.sign(payload);
-
-    // Return user data without password
-    const { passwordHash, ...userWithoutPassword } = user;
-
-    return {
-      accessToken,
-      user: userWithoutPassword,
-    };
+    return { accessToken, user: safeUser };
   }
 
   async getProfile(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        role: true,
-        status: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
-
-    if (!user) {
-      throw new UnauthorizedException('User not found');
-    }
-
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: PROFILE_SELECT });
+    if (!user) throw new UnauthorizedException('User not found');
     return user;
   }
 
-  async logout(user: any) {
-    // For JWT, logout is handled client-side by removing the token
-    // This endpoint exists for completeness
+  logout() {
+    // Stateless JWT: the client discards the token. Endpoint kept for symmetry.
     return { message: 'Logout successful' };
   }
 
-  async refreshToken(refreshToken: string) {
-    try {
-      // Verify refresh token
-      const payload = this.jwtService.verify(refreshToken, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-      });
-
-      // Get user
-      const user = await this.prisma.user.findUnique({
-        where: { id: payload.sub },
-      });
-
-      if (!user || user.status === 'DISABLED') {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-
-      // Generate new access token
-      const newPayload = {
-        sub: user.id,
-        email: user.email,
-        role: user.role,
-      };
-
-      const accessToken = this.jwtService.sign(newPayload);
-
-      return { accessToken };
-    } catch (error) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
+  /** Sliding session: an authenticated user trades a still-valid token for a fresh one. */
+  async refreshToken(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.status === 'DISABLED') throw new UnauthorizedException('Session is no longer valid');
+    return { accessToken: this.sign(user) };
   }
 
-  async validateUser(email: string, password: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
-    });
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('User not found');
 
-    if (user && (await bcrypt.compare(password, user.passwordHash))) {
-      const { passwordHash, ...result } = user;
-      return result;
+    if (!(await bcrypt.compare(dto.currentPassword, user.passwordHash))) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException('New password must be different from the current one');
     }
 
-    return null;
+    const passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+      this.prisma.auditLog.create({
+        data: { userId, action: 'PASSWORD_CHANGE', entity: 'User', entityId: userId },
+      }),
+    ]);
+
+    return { message: 'Password changed successfully' };
   }
 
-  async hashPassword(password: string): Promise<string> {
-    return bcrypt.hash(password, 10);
-  }
-
-  async comparePasswords(password: string, hash: string): Promise<boolean> {
-    return bcrypt.compare(password, hash);
+  private sign(user: { id: string; email: string; role: string }) {
+    return this.jwtService.sign({ sub: user.id, email: user.email, role: user.role });
   }
 }

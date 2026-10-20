@@ -5,6 +5,7 @@ export interface Location {
   name: string
   createdAt: string
   updatedAt: string
+  _count?: { inventories: number; goodsReceipts: number }
 }
 
 export interface InventoryBalance {
@@ -17,7 +18,16 @@ export interface InventoryBalance {
   updatedAt: string
   product?: Product
   location?: Location
-  availableQuantity?: number
+  availableQuantity: number
+}
+
+export interface InventoryFilters {
+  locationId?: string
+  productId?: string
+  search?: string
+  stockLevel?: 'all' | 'low' | 'out'
+  page?: number
+  limit?: number
 }
 
 export interface StockInDto {
@@ -28,13 +38,8 @@ export interface StockInDto {
   reference?: string
 }
 
-export interface StockOutDto {
-  productId: string
-  locationId: string
-  quantity: number
-  reason: string
-  reference?: string
-}
+export type StockOutDto = StockInDto
+export type DamageDto = StockInDto
 
 export interface AdjustmentDto {
   productId: string
@@ -44,20 +49,17 @@ export interface AdjustmentDto {
   reason: string
 }
 
-export interface DamageDto {
-  productId: string
-  locationId: string
-  quantity: number
-  reason: string
-  reference?: string
-}
-
-export interface LowStockItem {
-  product: Product
-  location: Location
-  quantity: number
-  reservedQuantity: number
-  availableQuantity: number
+export interface LowStockItem extends InventoryBalance {
   reorderLevel: number
   shortfall: number
+}
+
+export interface LowStockResponse {
+  lowStock: LowStockItem[]
+  outOfStock: LowStockItem[]
+}
+
+export interface StockActionResult {
+  message: string
+  inventory: InventoryBalance
 }

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString, IsUUID, IsDateString, IsEnum, IsInt, Min, Max } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { MovementType } from '@prisma/client';
 
@@ -24,7 +24,8 @@ export class StockMovementFilterDto {
     description: 'Filter by product ID',
   })
   @IsOptional()
-  @IsUUID('4', { message: 'Invalid product ID format' })
+  @IsString()
+  @MaxLength(40)
   productId?: string;
 
   @ApiProperty({
@@ -32,7 +33,8 @@ export class StockMovementFilterDto {
     description: 'Filter by location ID',
   })
   @IsOptional()
-  @IsUUID('4', { message: 'Invalid location ID format' })
+  @IsString()
+  @MaxLength(40)
   locationId?: string;
 
   @ApiProperty({
@@ -50,7 +52,8 @@ export class StockMovementFilterDto {
     description: 'Filter by user ID',
   })
   @IsOptional()
-  @IsUUID('4', { message: 'Invalid user ID format' })
+  @IsString()
+  @MaxLength(40)
   userId?: string;
 
   @ApiProperty({

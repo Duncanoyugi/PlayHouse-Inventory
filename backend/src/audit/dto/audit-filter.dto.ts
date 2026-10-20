@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString, IsUUID, IsDateString, IsInt, Min, Max } from 'class-validator';
+import { IsDateString, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class AuditFilterDto {
@@ -23,7 +23,8 @@ export class AuditFilterDto {
     description: 'Filter by user ID',
   })
   @IsOptional()
-  @IsUUID('4', { message: 'Invalid user ID format' })
+  @IsString()
+  @MaxLength(40)
   userId?: string;
 
   @ApiProperty({
@@ -40,7 +41,8 @@ export class AuditFilterDto {
     description: 'Filter by entity ID',
   })
   @IsOptional()
-  @IsUUID('4', { message: 'Invalid entity ID format' })
+  @IsString()
+  @MaxLength(40)
   entityId?: string;
 
   @ApiProperty({

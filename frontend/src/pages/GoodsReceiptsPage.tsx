@@ -1,21 +1,85 @@
-﻿import { useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+﻿import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { PackageCheck, Truck } from 'lucide-react'
 import { goodsReceiptsApi } from '../api/endpoints/goods-receipts.api'
-import { ActivityTable } from '../components/common/ActivityTable'
-import LoadingSpinner from '../components/common/Loading/LoadingSpinner'
+import { purchaseOrdersApi } from '../api/endpoints/purchase-orders.api'
+import { PageHeader } from '../components/common/PageHeader'
 import { Button } from '../components/common/Buttons/Button'
-import { Modal } from '../components/common/Modal/Modal'
-import { GoodsReceiptForm } from '../components/goods-receipts/GoodsReceiptForm'
-import type { CreateGoodsReceiptDto } from '../types'
-import toast from 'react-hot-toast'
-import axios from 'axios'
+import { DataTable, type Column } from '../components/common/Table/DataTable'
+import { Pagination } from '../components/common/Pagination/Pagination'
+import { StatusBadge } from '../components/common/Badges/StatusBadge'
+import { EmptyState } from '../components/common/EmptyState'
+import { ReceiveGoodsModal } from '../components/goods-receipts/ReceiveGoodsModal'
+import { GoodsReceiptDetail } from '../components/goods-receipts/GoodsReceiptDetail'
+import { usePageTitle } from '../hooks/usePageTitle'
+import { formatDate, formatDateTime } from '../utils/format-utils'
+import type { GoodsReceipt } from '../types'
 
-export const GoodsReceiptsPage = () => {
-  const client = useQueryClient()
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const query = useQuery({ queryKey: ['goods-receipts'], queryFn: () => goodsReceiptsApi.getAll({ page: 1, limit: 100 }) })
-  if (query.isLoading) return <LoadingSpinner />
-  const rows = query.data?.items || []
-  const create = async (data: CreateGoodsReceiptDto) => { try { await goodsReceiptsApi.create(data); toast.success('Goods received and inventory updated'); setIsCreateOpen(false); void client.invalidateQueries({ queryKey: ['goods-receipts'] }); void client.invalidateQueries({ queryKey: ['inventory'] }); void client.invalidateQueries({ queryKey: ['low-stock'] }) } catch (error: unknown) { toast.error(axios.isAxiosError(error) ? error.response?.data?.message || 'Unable to receive goods' : 'Unable to receive goods') } }
-  return <div className="space-y-6"><div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-semibold uppercase tracking-widest text-cyan-700">Receiving</p><h1 className="mt-1 text-3xl font-semibold text-slate-950">Goods receipts</h1><p className="mt-2 text-sm text-slate-500">Review deliveries and the inventory updates created from them.</p></div><Button onClick={() => setIsCreateOpen(true)}>Receive goods</Button></div><ActivityTable title="Receipt register" description={`${query.data?.total || rows.length} receipts`} onRefresh={() => void query.refetch()} rows={rows} columns={[{ key: 'receiptNumber', label: 'Receipt number', render: (row) => <span className="font-mono font-semibold text-slate-900">{row.receiptNumber}</span> }, { key: 'purchaseOrder', label: 'Purchase order', render: (row) => row.purchaseOrder?.poNumber || row.purchaseOrderId }, { key: 'location', label: 'Location', render: (row) => row.location?.name || row.locationId }, { key: 'receivedAt', label: 'Received', render: (row) => new Date(row.receivedAt).toLocaleDateString() }, { key: 'items', label: 'Line items', render: (row) => row.items?.length || 0 }, { key: 'notes', label: 'Notes' }]} /><Modal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} title="Receive goods" size="lg"><GoodsReceiptForm onSubmit={(data) => void create(data)} onCancel={() => setIsCreateOpen(false)} /></Modal></div>
+export default function GoodsReceiptsPage() {
+  usePageTitle('Goods receiving')
+  const [params, setParams] = useSearchParams()
+  const [receiveId, setReceiveId] = useState<string | null>(() => params.get('receive'))
+  const [viewId, setViewId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const limit = 15
+
+  // Deep link from a purchase order: /goods-receipts?receive=<id>
+  useEffect(() => {
+    if (params.get('receive')) setParams({}, { replace: true })
+  }, [params, setParams])
+
+  const approved = useQuery({ queryKey: ['purchase-orders', 'awaiting', 'APPROVED'], queryFn: () => purchaseOrdersApi.getAll({ status: 'APPROVED', limit: 50 }) })
+  const partial = useQuery({ queryKey: ['purchase-orders', 'awaiting', 'PARTIALLY_RECEIVED'], queryFn: () => purchaseOrdersApi.getAll({ status: 'PARTIALLY_RECEIVED', limit: 50 }) })
+  const awaiting = [...(partial.data?.items ?? []), ...(approved.data?.items ?? [])]
+
+  const list = useQuery({ queryKey: ['goods-receipts', 'list', page], queryFn: () => goodsReceiptsApi.getAll({ page, limit }), placeholderData: keepPreviousData })
+
+  const columns: Column<GoodsReceipt>[] = [
+    { key: 'no', header: 'Receipt', cell: (r) => <span className="font-semibold">{r.receiptNumber}</span> },
+    { key: 'po', header: 'Purchase order', cell: (r) => <div><p>{r.purchaseOrder?.poNumber}</p><p className="text-xs text-muted">{r.purchaseOrder?.supplier?.name}</p></div> },
+    { key: 'loc', header: 'Location', hideBelow: 'md', cell: (r) => r.location?.name },
+    { key: 'lines', header: 'Lines', align: 'right', hideBelow: 'sm', cell: (r) => r._count?.items ?? 0 },
+    { key: 'by', header: 'Received by', hideBelow: 'lg', cell: (r) => r.receiver?.fullName },
+    { key: 'when', header: 'Received', cell: (r) => <span className="whitespace-nowrap text-muted">{formatDateTime(r.receivedAt)}</span> },
+  ]
+
+  return (
+    <>
+      <PageHeader eyebrow="Store" title="Goods receiving" description="Book in deliveries against approved purchase orders. Accepted units go straight into stock." />
+
+      <section className="card overflow-hidden">
+        <div className="flex items-center gap-3 border-b border-line px-5 py-4">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/14 text-amber-600"><Truck className="h-5 w-5" /></span>
+          <div><h2 className="text-base font-semibold">Awaiting delivery</h2><p className="text-sm text-muted">Approved orders you can receive now.</p></div>
+        </div>
+        {approved.isLoading || partial.isLoading ? (
+          <div className="p-5"><div className="skeleton h-14 w-full" /></div>
+        ) : awaiting.length === 0 ? (
+          <EmptyState icon={<PackageCheck className="h-6 w-6" />} title="Nothing waiting" description="When the manager approves a purchase order it will show up here." />
+        ) : (
+          <ul className="divide-y divide-line">
+            {awaiting.map((po) => (
+              <li key={po.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                <div className="min-w-0">
+                  <p className="font-semibold">{po.poNumber} <span className="ml-1"><StatusBadge status={po.status} /></span></p>
+                  <p className="text-sm text-muted">{po.supplier?.name} - expected {formatDate(po.expectedDate)} - {po._count?.items ?? 0} line(s)</p>
+                </div>
+                <Button size="sm" icon={<PackageCheck className="h-4 w-4" />} onClick={() => setReceiveId(po.id)}>Receive</Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="card overflow-hidden">
+        <div className="border-b border-line px-5 py-4"><h2 className="text-base font-semibold">Receipt history</h2></div>
+        <DataTable columns={columns} rows={list.data?.items ?? []} rowKey={(r) => r.id} isLoading={list.isLoading} isError={list.isError} onRetry={() => void list.refetch()} onRowClick={(r) => setViewId(r.id)} empty={{ title: 'No deliveries received yet' }} />
+        {list.data && <Pagination page={list.data.page} totalPages={list.data.totalPages} total={list.data.total} limit={limit} onPageChange={setPage} />}
+      </section>
+
+      <ReceiveGoodsModal purchaseOrderId={receiveId} onClose={() => setReceiveId(null)} />
+      <GoodsReceiptDetail id={viewId} onClose={() => setViewId(null)} />
+    </>
+  )
 }

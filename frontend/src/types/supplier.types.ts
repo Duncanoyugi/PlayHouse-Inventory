@@ -1,18 +1,16 @@
-import type { Status } from './common.types'
+export type SupplierStatus = 'ACTIVE' | 'INACTIVE'
 
 export interface Supplier {
   id: string
   name: string
-  contactPerson?: string
-  email?: string
-  phone?: string
-  address?: string
-  status: Status
+  contactPerson?: string | null
+  email?: string | null
+  phone?: string | null
+  address?: string | null
+  status: SupplierStatus
   createdAt: string
   updatedAt: string
-  _count?: {
-    purchaseOrders: number
-  }
+  _count?: { purchaseOrders: number }
 }
 
 export interface CreateSupplierDto {
@@ -21,14 +19,7 @@ export interface CreateSupplierDto {
   email?: string
   phone?: string
   address?: string
-  status?: Status
+  status?: SupplierStatus
 }
 
-export interface UpdateSupplierDto {
-  name?: string
-  contactPerson?: string
-  email?: string
-  phone?: string
-  address?: string
-  status?: Status
-}
+export type UpdateSupplierDto = Partial<CreateSupplierDto>

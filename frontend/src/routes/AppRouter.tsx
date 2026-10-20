@@ -1,71 +1,87 @@
-import { Routes, Route } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { PrivateRoute } from './PrivateRoute'
-import { RoleRoute } from './RoleRoute'
 import { PublicRoute } from './PublicRoute'
+import { RoleRoute } from './RoleRoute'
 import { ROUTES } from './route-constants'
-
-// Layouts
 import { MainLayout } from '../layouts/MainLayout'
-import { AuthLayout } from '../layouts/AuthLayout'
+import { LoadingSpinner } from '../components/common/Loading/LoadingSpinner'
 
-// Pages
-import { LoginPage } from '../pages/LoginPage'
-import { LandingPage } from '../pages/LandingPage'
-import { DashboardPage } from '../pages/DashboardPage'
-import { ProductsPage } from '../pages/ProductsPage'
-import { CategoriesPage } from '../pages/CategoriesPage'
-import { BrandsPage } from '../pages/BrandsPage'
-import { InventoryPage } from '../pages/InventoryPage'
-import { StockMovementsPage } from '../pages/StockMovementsPage'
-import { SuppliersPage } from '../pages/SuppliersPage'
-import { LocationsPage } from '../pages/LocationsPage'
-import { PurchaseOrdersPage } from '../pages/PurchaseOrdersPage'
-import { GoodsReceiptsPage } from '../pages/GoodsReceiptsPage'
-import { ReportsPage } from '../pages/ReportsPage'
-import { AuditPage } from '../pages/AuditPage'
-import { UsersPage } from '../pages/UsersPage'
-import { ProfilePage } from '../pages/ProfilePage'
-import { SettingsPage } from '../pages/SettingsPage'
-import { UnauthorizedPage } from '../pages/UnauthorizedPage'
-import { NotFoundPage } from '../pages/NotFoundPage'
+const LandingPage = lazy(() => import('../pages/LandingPage'))
+const LoginPage = lazy(() => import('../pages/LoginPage'))
+const DashboardPage = lazy(() => import('../pages/DashboardPage'))
+const StockDeskPage = lazy(() => import('../pages/StockDeskPage'))
+const ProductsPage = lazy(() => import('../pages/ProductsPage'))
+const CategoriesPage = lazy(() => import('../pages/CategoriesPage'))
+const BrandsPage = lazy(() => import('../pages/BrandsPage'))
+const LocationsPage = lazy(() => import('../pages/LocationsPage'))
+const SuppliersPage = lazy(() => import('../pages/SuppliersPage'))
+const InventoryPage = lazy(() => import('../pages/InventoryPage'))
+const StockMovementsPage = lazy(() => import('../pages/StockMovementsPage'))
+const PurchaseOrdersPage = lazy(() => import('../pages/PurchaseOrdersPage'))
+const GoodsReceiptsPage = lazy(() => import('../pages/GoodsReceiptsPage'))
+const ReportsPage = lazy(() => import('../pages/ReportsPage'))
+const AuditPage = lazy(() => import('../pages/AuditPage'))
+const UsersPage = lazy(() => import('../pages/UsersPage'))
+const ProfilePage = lazy(() => import('../pages/ProfilePage'))
+const UnauthorizedPage = lazy(() => import('../pages/UnauthorizedPage'))
+const NotFoundPage = lazy(() => import('../pages/NotFoundPage'))
 
-export const AppRouter = () => {
+export function AppRouter() {
   return (
-    <Routes>
-      {/* Public Routes */}
-      <Route element={<PublicRoute />}>
+    <Suspense fallback={<LoadingSpinner fullPage />}>
+      <Routes>
         <Route path={ROUTES.LANDING} element={<LandingPage />} />
-        <Route element={<AuthLayout />}>
+
+        <Route element={<PublicRoute />}>
           <Route path={ROUTES.LOGIN} element={<LoginPage />} />
         </Route>
-      </Route>
 
-      {/* Private Routes */}
-      <Route element={<PrivateRoute />}>
-        <Route element={<MainLayout />}>
-          <Route path={ROUTES.DASHBOARD} element={<DashboardPage />} />
-          <Route path={ROUTES.PRODUCTS} element={<ProductsPage />} />
-          <Route path={ROUTES.CATEGORIES} element={<CategoriesPage />} />
-          <Route path={ROUTES.BRANDS} element={<BrandsPage />} />
-          <Route path={ROUTES.INVENTORY} element={<InventoryPage />} />
-          <Route path={ROUTES.STOCK_MOVEMENTS} element={<StockMovementsPage />} />
-          <Route path={ROUTES.SUPPLIERS} element={<SuppliersPage />} />
-          <Route path={ROUTES.LOCATIONS} element={<LocationsPage />} />
-          <Route path={ROUTES.PURCHASE_ORDERS} element={<PurchaseOrdersPage />} />
-          <Route path={ROUTES.GOODS_RECEIPTS} element={<GoodsReceiptsPage />} />
-          <Route path={ROUTES.REPORTS} element={<ReportsPage />} />
-          <Route element={<RoleRoute role="ADMIN" />}>
-            <Route path={ROUTES.AUDIT} element={<AuditPage />} />
-            <Route path={ROUTES.USERS} element={<UsersPage />} />
+        <Route element={<PrivateRoute />}>
+          <Route element={<MainLayout />}>
+            {/* Everyone */}
+            <Route path={ROUTES.DASHBOARD} element={<DashboardPage />} />
+            <Route path={ROUTES.PRODUCTS} element={<ProductsPage />} />
+            <Route path={ROUTES.INVENTORY} element={<InventoryPage />} />
+            <Route path={ROUTES.STOCK_MOVEMENTS} element={<StockMovementsPage />} />
+            <Route path={ROUTES.PROFILE} element={<ProfilePage />} />
+            <Route path={ROUTES.UNAUTHORIZED} element={<UnauthorizedPage />} />
+
+            {/* Recording incoming / outgoing stock */}
+            <Route element={<RoleRoute permission="stock:record" />}>
+              <Route path={ROUTES.STOCK_DESK} element={<StockDeskPage />} />
+            </Route>
+            <Route element={<RoleRoute permission="receipt:create" />}>
+              <Route path={ROUTES.GOODS_RECEIPTS} element={<GoodsReceiptsPage />} />
+            </Route>
+            <Route element={<RoleRoute permission="po:view" />}>
+              <Route path={ROUTES.PURCHASE_ORDERS} element={<PurchaseOrdersPage />} />
+            </Route>
+
+            {/* Manager only */}
+            <Route element={<RoleRoute permission="catalog:manage" />}>
+              <Route path={ROUTES.CATEGORIES} element={<CategoriesPage />} />
+              <Route path={ROUTES.BRANDS} element={<BrandsPage />} />
+              <Route path={ROUTES.LOCATIONS} element={<LocationsPage />} />
+            </Route>
+            <Route element={<RoleRoute permission="supplier:manage" />}>
+              <Route path={ROUTES.SUPPLIERS} element={<SuppliersPage />} />
+            </Route>
+            <Route element={<RoleRoute permission="report:view" />}>
+              <Route path={ROUTES.REPORTS} element={<ReportsPage />} />
+            </Route>
+            <Route element={<RoleRoute permission="audit:view" />}>
+              <Route path={ROUTES.AUDIT} element={<AuditPage />} />
+            </Route>
+            <Route element={<RoleRoute permission="user:manage" />}>
+              <Route path={ROUTES.USERS} element={<UsersPage />} />
+            </Route>
           </Route>
-          <Route path={ROUTES.PROFILE} element={<ProfilePage />} />
-          <Route path={ROUTES.SETTINGS} element={<SettingsPage />} />
-          <Route path={ROUTES.UNAUTHORIZED} element={<UnauthorizedPage />} />
         </Route>
-      </Route>
 
-      {/* 404 */}
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+        <Route path="/home" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </Suspense>
   )
 }

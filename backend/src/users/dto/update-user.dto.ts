@@ -1,59 +1,37 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsString, MinLength, MaxLength, IsEnum, IsOptional } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEmail, IsString, MinLength, MaxLength, IsEnum, IsOptional, Matches } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { Role, UserStatus } from '@prisma/client';
+import { PASSWORD_MESSAGE, PASSWORD_RULE, normalizeEmail } from './create-user.dto';
 
 export class UpdateUserDto {
-  @ApiProperty({
-    example: 'john.doe@playhouse.co.ke',
-    description: 'User email address',
-    required: false,
-  })
+  @ApiPropertyOptional()
   @IsOptional()
+  @Transform(normalizeEmail)
   @IsEmail({}, { message: 'Please provide a valid email address' })
   email?: string;
 
-  @ApiProperty({
-    example: 'John Doe Updated',
-    description: 'User full name',
-    required: false,
-  })
+  @ApiPropertyOptional()
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MinLength(2, { message: 'Full name must be at least 2 characters' })
   @MaxLength(100, { message: 'Full name cannot exceed 100 characters' })
   fullName?: string;
 
-  @ApiProperty({
-    example: 'NewStrongPass@123',
-    description: 'User password',
-    required: false,
-    minLength: 8,
-    maxLength: 50,
-  })
+  @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  @MinLength(8, { message: 'Password must be at least 8 characters' })
-  @MaxLength(50, { message: 'Password cannot exceed 50 characters' })
+  @MaxLength(72, { message: 'Password cannot exceed 72 characters' })
+  @Matches(PASSWORD_RULE, { message: PASSWORD_MESSAGE })
   password?: string;
 
-  @ApiProperty({
-    enum: Role,
-    example: 'ADMIN',
-    description: 'User role',
-    required: false,
-    enumName: 'Role',
-  })
+  @ApiPropertyOptional({ enum: Role })
   @IsOptional()
-  @IsEnum(Role, { message: 'Role must be either ADMIN or STOREKEEPER' })
+  @IsEnum(Role, { message: 'Role must be either ADMIN (manager) or STOREKEEPER' })
   role?: Role;
 
-  @ApiProperty({
-    enum: UserStatus,
-    example: 'ACTIVE',
-    description: 'User status',
-    required: false,
-    enumName: 'UserStatus',
-  })
+  @ApiPropertyOptional({ enum: UserStatus })
   @IsOptional()
   @IsEnum(UserStatus, { message: 'Status must be ACTIVE or DISABLED' })
   status?: UserStatus;

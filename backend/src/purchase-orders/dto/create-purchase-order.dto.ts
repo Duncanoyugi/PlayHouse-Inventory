@@ -1,57 +1,50 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsArray, ValidateNested, IsOptional, IsDateString, Min, IsNumber, ArrayNotEmpty } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsString,
+  IsArray,
+  ValidateNested,
+  IsOptional,
+  IsDateString,
+  Min,
+  Max,
+  IsInt,
+  IsNumber,
+  IsNotEmpty,
+  ArrayNotEmpty,
+  ArrayMaxSize,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
-class PurchaseOrderItemDto {
-  @ApiProperty({
-    example: 'prod_123456789',
-    description: 'Product ID',
-  })
-  @IsString()
-  productId: string;
+export class PurchaseOrderItemDto {
+  @ApiProperty() @IsString() @IsNotEmpty() productId: string;
 
-  @ApiProperty({
-    example: 10,
-    description: 'Quantity ordered',
-  })
-  @IsNumber()
+  @ApiProperty({ example: 10 })
+  @IsInt({ message: 'Quantity must be a whole number' })
   @Min(1, { message: 'Quantity must be at least 1' })
+  @Max(1_000_000)
   @Type(() => Number)
   quantity: number;
 
-  @ApiProperty({
-    example: 85000,
-    description: 'Unit cost in KES',
-  })
-  @IsNumber()
+  @ApiProperty({ example: 1250.5 })
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Unit cost can have at most 2 decimal places' })
   @Min(0, { message: 'Unit cost must be at least 0' })
+  @Max(100_000_000)
   @Type(() => Number)
   unitCost: number;
 }
 
 export class CreatePurchaseOrderDto {
-  @ApiProperty({
-    example: 'supplier_123456789',
-    description: 'Supplier ID',
-  })
-  @IsString()
-  supplierId: string;
+  @ApiProperty() @IsString() @IsNotEmpty() supplierId: string;
 
-  @ApiProperty({
-    example: '2026-09-10',
-    description: 'Expected delivery date',
-    required: false,
-  })
+  @ApiPropertyOptional({ example: '2026-11-15' })
   @IsOptional()
   @IsDateString({}, { message: 'Invalid date format' })
   expectedDate?: string;
 
-  @ApiProperty({
-    type: [PurchaseOrderItemDto],
-    description: 'PO items',
-  })
+  @ApiProperty({ type: [PurchaseOrderItemDto] })
   @IsArray()
   @ArrayNotEmpty({ message: 'At least one purchase order item is required' })
+  @ArrayMaxSize(200)
   @ValidateNested({ each: true })
   @Type(() => PurchaseOrderItemDto)
   items: PurchaseOrderItemDto[];

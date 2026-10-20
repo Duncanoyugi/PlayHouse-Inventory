@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MovementType } from '@prisma/client';
+import { dateRange } from '../common/utils/pagination';
+
+const MOVEMENT_REPORT_LIMIT = 5000;
 
 @Injectable()
 export class ReportsService {
@@ -190,18 +193,12 @@ export class ReportsService {
       where.inventory = { locationId };
     }
 
-    if (fromDate || toDate) {
-      where.createdAt = {};
-      if (fromDate) {
-        where.createdAt.gte = new Date(fromDate);
-      }
-      if (toDate) {
-        where.createdAt.lte = new Date(toDate);
-      }
-    }
+    const range = dateRange(fromDate, toDate);
+    if (range) where.createdAt = range;
 
     const movements = await this.prisma.stockMovement.findMany({
       where,
+      take: MOVEMENT_REPORT_LIMIT,
       include: {
         product: {
           include: {
@@ -250,6 +247,7 @@ export class ReportsService {
         netChange: totalStockIn - totalStockOut,
         byType,
       },
+      truncated: movements.length >= MOVEMENT_REPORT_LIMIT,
       dateRange: {
         fromDate: fromDate || null,
         toDate: toDate || null,

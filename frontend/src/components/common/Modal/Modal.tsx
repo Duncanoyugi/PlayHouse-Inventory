@@ -1,83 +1,86 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { clsx } from 'clsx'
+import { X } from 'lucide-react'
 
 interface ModalProps {
   isOpen: boolean
   onClose: () => void
   title: string
-  children: React.ReactNode
+  description?: string
+  children: ReactNode
+  footer?: ReactNode
   size?: 'sm' | 'md' | 'lg' | 'xl'
+  /** Prevent closing while a request is in flight. */
+  locked?: boolean
 }
 
-export const Modal: React.FC<ModalProps> = ({
-  isOpen,
-  onClose,
-  title,
-  children,
-  size = 'md',
-}) => {
-  const modalRef = useRef<HTMLDivElement>(null)
+const sizes = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' }
+
+export function Modal({ isOpen, onClose, title, description, children, footer, size = 'md', locked = false }: ModalProps) {
+  const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+    if (!isOpen) return
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !locked) onClose()
     }
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
-        onClose()
-      }
-    }
-
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape)
-      document.addEventListener('mousedown', handleClickOutside)
-      document.body.style.overflow = 'hidden'
-    }
-
+    document.addEventListener('keydown', onKey)
+    const { overflow } = document.body.style
+    document.body.style.overflow = 'hidden'
+    // Move focus into the dialog (first field if any) for keyboard / screen reader users.
+    const t = window.setTimeout(() => {
+      const first = panelRef.current?.querySelector<HTMLElement>('input:not([disabled]),select,textarea')
+      ;(first ?? panelRef.current)?.focus()
+    }, 30)
     return () => {
-      document.removeEventListener('keydown', handleEscape)
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.body.style.overflow = 'unset'
+      window.clearTimeout(t)
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = overflow
+      previouslyFocused?.focus?.()
     }
-  }, [isOpen, onClose])
+  }, [isOpen, onClose, locked])
 
   if (!isOpen) return null
 
-  const sizes = {
-    sm: 'max-w-md',
-    md: 'max-w-lg',
-    lg: 'max-w-2xl',
-    xl: 'max-w-4xl',
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex min-h-full items-start justify-center p-2 sm:items-center sm:p-4">
-        <div className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"></div>
-
-        <div
-          ref={modalRef}
-          className={clsx(
-            'relative my-2 max-h-[calc(100vh-1rem)] w-full overflow-y-auto rounded-xl bg-white shadow-xl sm:my-0 sm:max-h-[calc(100vh-2rem)]',
-            sizes[size]
-          )}
-        >
-          <div className="flex items-center justify-between p-4 border-b border-gray-200">
-            <h3 className="min-w-0 pr-3 text-base font-semibold text-gray-900 sm:text-lg">{title}</h3>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-500 transition-colors"
-            >
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+  return createPortal(
+    <div
+      className="animate-fade fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !locked) onClose()
+      }}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        className={clsx(
+          'animate-pop relative flex max-h-[92vh] w-full flex-col rounded-t-3xl border border-line bg-surface shadow-pop outline-none sm:rounded-3xl',
+          sizes[size],
+        )}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4 sm:px-6">
+          <div className="min-w-0">
+            <h3 className="truncate text-lg font-semibold text-fg">{title}</h3>
+            {description && <p className="mt-0.5 text-sm text-muted">{description}</p>}
           </div>
-
-          <div className="p-4 sm:p-6">{children}</div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={locked}
+            aria-label="Close dialog"
+            className="rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-fg disabled:opacity-40"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
+        {footer && <div className="flex flex-col-reverse gap-2 border-t border-line px-5 py-4 sm:flex-row sm:justify-end sm:px-6">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -1,60 +1,59 @@
-import { ArrowRight, Boxes, ClipboardList, PackageCheck, ShieldCheck, Truck } from 'lucide-react'
-import '../styles/landing.css'
+import { Link, Navigate } from 'react-router-dom'
+import { ArrowRight, Boxes, ClipboardCheck, Gamepad2, LineChart, ShieldCheck, Truck } from 'lucide-react'
+import { ROUTES } from '../routes/route-constants'
+import { useAuth } from '../contexts/AuthContext'
+import { usePageTitle } from '../hooks/usePageTitle'
 
-export const LandingPage = () => {
+const FEATURES = [
+  { icon: Boxes, title: 'Live stock levels', text: 'Always know what is on the shelf, what is running low and what needs reordering.' },
+  { icon: Truck, title: 'Incoming & outgoing', text: 'Store keepers record every delivery and every sale in seconds, with a full trail.' },
+  { icon: ClipboardCheck, title: 'Purchasing control', text: 'Managers raise, approve and track purchase orders from supplier to shelf.' },
+  { icon: LineChart, title: 'Reports that matter', text: 'Valuation, movement and top-seller reports ready whenever you need them.' },
+  { icon: ShieldCheck, title: 'Role-based access', text: 'Each person only sees and does what their job requires.' },
+]
+
+export default function LandingPage() {
+  usePageTitle('Stock control for Playhouse')
+  const { isAuthenticated } = useAuth()
+  if (isAuthenticated) return <Navigate to={ROUTES.DASHBOARD} replace />
+
   return (
-    <div className="landing-page">
-      <header className="landing-nav">
-        <a className="landing-brand" href="/" aria-label="PlayHouse Inventory home">
-          <span className="landing-brand-mark"><Boxes size={19} strokeWidth={2.4} /></span>
-          <span>PlayHouse Inventory</span>
-        </a>
-        <nav className="landing-nav-links" aria-label="Main navigation">
-          <a href="#capabilities">Capabilities</a>
-          <a href="#how-it-works">How it works</a>
-          <a href="/login" className="landing-login-link">Team sign in <ArrowRight size={14} /></a>
-        </nav>
+    <div className="min-h-screen bg-bg">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-700 text-white"><Gamepad2 className="h-5 w-5" /></span>
+          <span className="text-lg font-bold tracking-tight text-fg">Playhouse <span className="text-brand-600">Inventory</span></span>
+        </div>
+        <Link to={ROUTES.LOGIN} className="btn btn-primary">Sign in</Link>
       </header>
 
-      <main className="landing-main">
-        <section className="landing-hero" id="overview">
-          <div className="landing-copy">
-            <div className="landing-eyebrow">Inventory operations, made clear</div>
-            <h1>Know what you have. <em>Move with confidence.</em></h1>
-            <p className="landing-description">PlayHouse Inventory gives your team one reliable place to manage products, suppliers, purchase orders, and every stock movement in between.</p>
-            <div className="landing-hero-actions"><a className="landing-primary-button" href="/login">Enter your workspace <ArrowRight size={16} /></a><a className="landing-text-button" href="#capabilities">See what it does <ArrowRight size={15} /></a></div>
-            <p className="landing-note"><ShieldCheck size={15} /> Built for accountable, everyday operations</p>
+      <section className="relative mx-auto max-w-6xl overflow-hidden px-5 pb-16 pt-12 sm:pt-20">
+        <div className="pointer-events-none absolute -top-24 left-1/2 h-[420px] w-[720px] -translate-x-1/2 rounded-full bg-brand-500/20 blur-3xl" aria-hidden />
+        <div className="relative mx-auto max-w-3xl text-center">
+          <span className="badge badge-blue">Built for Playhouse Electronics</span>
+          <h1 className="mt-5 text-4xl font-extrabold tracking-tight text-fg sm:text-6xl">
+            Every item in. Every item out. <span className="bg-gradient-to-r from-brand-500 to-brand-700 bg-clip-text text-transparent">Accounted for.</span>
+          </h1>
+          <p className="mx-auto mt-5 max-w-xl text-lg text-muted">
+            A fast, reliable inventory system for the shop floor and the back office. No more guesswork, no more missing stock.
+          </p>
+          <div className="mt-8 flex justify-center">
+            <Link to={ROUTES.LOGIN} className="btn btn-primary btn-lg">Open the system <ArrowRight className="h-5 w-5" /></Link>
           </div>
-          <div className="landing-hero-art" aria-label="Illustration of connected inventory operations">
-            <div className="landing-art-sun" />
-            <div className="landing-art-rack"><span /><span /><span /></div>
-            <div className="landing-art-box landing-art-box-one"><PackageCheck size={24} /></div>
-            <div className="landing-art-box landing-art-box-two"><Boxes size={20} /></div>
-            <div className="landing-art-box landing-art-box-three"><ClipboardList size={22} /></div>
-            <div className="landing-art-label landing-art-label-one">Stock levels</div>
-            <div className="landing-art-label landing-art-label-two">Purchase orders</div>
-            <div className="landing-art-label landing-art-label-three">Every movement</div>
+        </div>
+      </section>
+
+      <section className="mx-auto grid max-w-6xl gap-4 px-5 pb-20 sm:grid-cols-2 lg:grid-cols-3">
+        {FEATURES.map(({ icon: Icon, title, text }) => (
+          <div key={title} className="card card-pad transition hover:-translate-y-0.5">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-500/12 text-brand-600 dark:text-brand-300"><Icon className="h-5 w-5" /></span>
+            <h3 className="mt-4 text-base font-semibold text-fg">{title}</h3>
+            <p className="mt-1.5 text-sm leading-6 text-muted">{text}</p>
           </div>
-        </section>
+        ))}
+      </section>
 
-        <section className="landing-intro-band"><span>From receiving bay to stock report</span><strong>One source of truth for the whole team.</strong><span>Always know the next right move <ArrowRight size={15} /></span></section>
-
-        <section className="landing-capabilities" id="capabilities">
-          <div className="landing-section-heading"><div className="landing-eyebrow">Everything in its place</div><h2>The practical clarity your operation needs.</h2><p>Replace scattered spreadsheets and guesswork with a system that keeps the important details connected.</p></div>
-          <div className="landing-capability-grid">
-            <article className="landing-capability landing-capability-featured"><span className="landing-capability-icon"><Boxes size={22} /></span><h3>See your real inventory position</h3><p>Track products, categories, brands, locations, and low-stock signals without chasing updates across different tools.</p><a href="/login">Explore inventory <ArrowRight size={15} /></a></article>
-            <article className="landing-capability"><span className="landing-capability-icon"><Truck size={22} /></span><h3>Bring purchasing into the picture</h3><p>Keep suppliers, purchase orders, and goods receipts connected from request to arrival.</p></article>
-            <article className="landing-capability"><span className="landing-capability-icon"><ShieldCheck size={22} /></span><h3>Make every movement accountable</h3><p>Understand what changed, when it changed, and who made the update with a dependable audit trail.</p></article>
-          </div>
-        </section>
-
-        <section className="landing-process" id="how-it-works">
-          <div className="landing-process-heading"><div className="landing-eyebrow">A simpler rhythm</div><h2>Move inventory forward, one clear step at a time.</h2></div>
-          <div className="landing-process-steps"><div><span>01</span><h3>Receive</h3><p>Record what arrived and match it to the order.</p></div><div><span>02</span><h3>Organise</h3><p>Keep stock, locations, and product details current.</p></div><div><span>03</span><h3>Decide</h3><p>Use reports and alerts to act before issues become delays.</p></div></div>
-        </section>
-      </main>
-
-      <footer className="landing-footer"><p>© 2026 PlayHouse Inventory</p><div className="landing-footer-links"><a href="#capabilities">Capabilities</a><a href="#how-it-works">How it works</a><a href="/login">Team sign in</a></div></footer>
+      <footer className="border-t border-line py-6 text-center text-sm text-muted">&copy; {new Date().getFullYear()} Playhouse Electronics. All rights reserved.</footer>
     </div>
   )
 }

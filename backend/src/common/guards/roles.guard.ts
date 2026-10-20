@@ -1,33 +1,38 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { ROLES_KEY } from '../constants';
+import { ROLES_KEY, ERROR_MESSAGES, PUBLIC_KEY } from '../constants';
 
+/**
+ * Role based access control. Registered globally (after JwtAuthGuard).
+ *
+ * Every non-public route MUST declare its allowed roles with @Roles(...). A route
+ * without @Roles is rejected (default deny) so a forgotten decorator can never
+ * silently expose an endpoint.
+ */
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    const targets = [context.getHandler(), context.getClass()];
 
-    if (!requiredRoles) {
+    if (this.reflector.getAllAndOverride<boolean>(PUBLIC_KEY, targets)) {
       return true;
     }
 
+    const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, targets);
     const { user } = context.switchToHttp().getRequest();
 
     if (!user) {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(ERROR_MESSAGES.FORBIDDEN);
     }
 
-    const hasRole = requiredRoles.includes(user.role);
+    if (!requiredRoles || requiredRoles.length === 0) {
+      throw new ForbiddenException(ERROR_MESSAGES.FORBIDDEN);
+    }
 
-    if (!hasRole) {
-      throw new ForbiddenException(
-        `Required roles: ${requiredRoles.join(', ')}. User role: ${user.role}`,
-      );
+    if (!requiredRoles.includes(user.role)) {
+      throw new ForbiddenException(ERROR_MESSAGES.FORBIDDEN);
     }
 
     return true;

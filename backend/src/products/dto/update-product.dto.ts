@@ -1,16 +1,17 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
-  IsString,
-  IsOptional,
   IsEnum,
+  IsInt,
   IsNumber,
-  Min,
+  IsOptional,
+  IsString,
   Max,
-  MinLength,
   MaxLength,
+  Min,
+  MinLength,
 } from 'class-validator';
 import { ProductStatus } from '@prisma/client';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 export class UpdateProductDto {
   @ApiProperty({
@@ -19,6 +20,7 @@ export class UpdateProductDto {
     required: false,
   })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
   @IsString()
   @MinLength(5, { message: 'SKU must be at least 5 characters' })
   @MaxLength(50, { message: 'SKU cannot exceed 50 characters' })
@@ -30,6 +32,7 @@ export class UpdateProductDto {
     required: false,
   })
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MinLength(3, { message: 'Product name must be at least 3 characters' })
   @MaxLength(200, { message: 'Product name cannot exceed 200 characters' })
@@ -61,8 +64,9 @@ export class UpdateProductDto {
     required: false,
   })
   @IsOptional()
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Cost price can have at most 2 decimal places' })
   @Min(0, { message: 'Cost price must be at least 0' })
+  @Max(100_000_000, { message: 'Cost price is too large' })
   @Type(() => Number)
   costPrice?: number;
 
@@ -72,8 +76,9 @@ export class UpdateProductDto {
     required: false,
   })
   @IsOptional()
-  @IsNumber()
+  @IsInt({ message: 'Reorder level must be a whole number' })
   @Min(0, { message: 'Reorder level must be at least 0' })
+  @Max(1_000_000, { message: 'Reorder level is too large' })
   @Type(() => Number)
   reorderLevel?: number;
 

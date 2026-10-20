@@ -1,54 +1,27 @@
 import { apiClient } from '../client'
 import { API_ENDPOINTS } from '../../config/api.config'
-import type { 
-  InventoryBalance, 
-  StockInDto, 
-  StockOutDto, 
-  AdjustmentDto, 
+import type {
+  InventoryBalance,
+  InventoryFilters,
+  StockInDto,
+  StockOutDto,
+  AdjustmentDto,
   DamageDto,
   PaginatedResponse,
-  LowStockItem
+  LowStockResponse,
+  StockActionResult,
 } from '../../types'
 
+const base = API_ENDPOINTS.inventory
+
 export const inventoryApi = {
-  getAll: (params?: { locationId?: string; productId?: string; page?: number; limit?: number }) => 
-    apiClient.get<PaginatedResponse<InventoryBalance>>(API_ENDPOINTS.inventory, { params }),
+  getAll: (params?: InventoryFilters) => apiClient.get<PaginatedResponse<InventoryBalance>>(base, { params }),
 
-  getByProduct: (productId: string) => 
-    apiClient.get<{ product: any; inventory: InventoryBalance[]; summary: any }>(
-      `${API_ENDPOINTS.inventory}/${productId}`
-    ),
+  getLowStock: (locationId?: string) =>
+    apiClient.get<LowStockResponse>(`${base}/low-stock`, { params: { locationId } }),
 
-  getByLocation: (locationId: string) => 
-    apiClient.get<InventoryBalance[]>(`${API_ENDPOINTS.inventory}/location/${locationId}`),
-
-  getLowStock: (locationId?: string) => 
-    apiClient.get<{ lowStock: LowStockItem[]; outOfStock: LowStockItem[] }>(
-      `${API_ENDPOINTS.inventory}/low-stock`,
-      { params: { locationId } }
-    ),
-
-  stockIn: (data: StockInDto) => 
-    apiClient.post<{ inventory: InventoryBalance; movement: any }>(
-      `${API_ENDPOINTS.inventory}/stock-in`,
-      data
-    ),
-
-  stockOut: (data: StockOutDto) => 
-    apiClient.post<{ inventory: InventoryBalance; movement: any }>(
-      `${API_ENDPOINTS.inventory}/stock-out`,
-      data
-    ),
-
-  adjust: (data: AdjustmentDto) => 
-    apiClient.post<{ inventory: InventoryBalance; movement: any; adjustmentNumber: string }>(
-      `${API_ENDPOINTS.inventory}/adjust`,
-      data
-    ),
-
-  damage: (data: DamageDto) => 
-    apiClient.post<{ inventory: InventoryBalance; movement: any }>(
-      `${API_ENDPOINTS.inventory}/damage`,
-      data
-    ),
+  stockIn: (data: StockInDto) => apiClient.post<StockActionResult>(`${base}/stock-in`, data),
+  stockOut: (data: StockOutDto) => apiClient.post<StockActionResult>(`${base}/stock-out`, data),
+  adjust: (data: AdjustmentDto) => apiClient.post<StockActionResult>(`${base}/adjust`, data),
+  damage: (data: DamageDto) => apiClient.post<StockActionResult>(`${base}/damage`, data),
 }

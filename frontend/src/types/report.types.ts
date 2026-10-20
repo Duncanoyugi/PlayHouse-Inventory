@@ -1,50 +1,75 @@
+import type { Product } from './product.types'
+import type { Location } from './inventory.types'
+import type { LowStockItem } from './inventory.types'
+import type { StockMovement } from './stock-movement.types'
+
 export interface ReportFilters {
   fromDate?: string
   toDate?: string
-  categoryId?: string
-  brandId?: string
+  productId?: string
   locationId?: string
 }
 
 export interface InventorySummaryReport {
-  totalProducts: number
-  totalInventoryValue: number
-  totalQuantity: number
-  lowStockItems: number
-  outOfStockItems: number
-}
-
-export interface LowStockReportItem {
-  product: {
-    id: string
-    name: string
-    sku: string
-    costPrice: number
-    reorderLevel: number
+  summary: {
+    totalProducts: number
+    totalUnits: number
+    totalReserved: number
+    totalAvailable: number
+    totalValue: number
+    lowStockCount: number
+    outOfStockCount: number
   }
-  location: {
-    id: string
-    name: string
+  byLocation: { locationName: string; totalUnits: number; totalValue: number }[]
+  byCategory: { categoryName: string; totalUnits: number; totalValue: number }[]
+}
+
+export interface LowStockReport {
+  lowStock: LowStockItem[]
+  outOfStock: LowStockItem[]
+  summary: { totalLowStock: number; totalOutOfStock: number }
+}
+
+export interface ValuationReport {
+  items: {
+    product: Product
+    location: Location
+    quantity: number
+    reservedQuantity: number
+    availableQuantity: number
+    costPrice: number | string
+    totalValue: number
+    availableValue: number
+  }[]
+  summary: {
+    totalItems: number
+    totalUnits: number
+    totalAvailable: number
+    totalValue: number
+    totalAvailableValue: number
   }
-  quantity: number
-  reservedQuantity: number
-  availableQuantity: number
-  shortfall: number
 }
 
-export interface MovementReportItem {
-  date: string
-  type: string
-  productName: string
-  quantity: number
-  reason: string
+export interface MovementReport {
+  movements: StockMovement[]
+  truncated: boolean
+  summary: {
+    totalMovements: number
+    totalStockIn: number
+    totalStockOut: number
+    netChange: number
+    byType: Record<string, number>
+  }
 }
 
-export interface ValuationReportItem {
-  productId: string
-  productName: string
-  sku: string
-  quantity: number
-  unitCost: number
-  totalValue: number
+export interface TopMovingReport {
+  period: string
+  results: {
+    product: Product
+    totalQuantity: number
+    totalValue: number
+    movementCount: number
+    locations: string[]
+  }[]
+  summary: { totalProducts: number; totalUnits: number; totalValue: number }
 }

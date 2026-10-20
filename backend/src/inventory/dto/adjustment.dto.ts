@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsInt, IsString, Min, IsEnum, MinLength } from 'class-validator';
+import { IsEnum, IsInt, IsNotEmpty, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AdjustmentType } from '@prisma/client';
 
@@ -9,6 +9,7 @@ export class AdjustmentDto {
     description: 'Product ID',
   })
   @IsString()
+  @IsNotEmpty()
   productId: string;
 
   @ApiProperty({
@@ -16,6 +17,7 @@ export class AdjustmentDto {
     description: 'Location ID',
   })
   @IsString()
+  @IsNotEmpty()
   locationId: string;
 
   @ApiProperty({
@@ -24,6 +26,7 @@ export class AdjustmentDto {
   })
   @IsInt()
   @Min(1, { message: 'Quantity must be at least 1' })
+  @Max(1_000_000, { message: 'Quantity is too large' })
   @Type(() => Number)
   quantity: number;
 
@@ -42,5 +45,6 @@ export class AdjustmentDto {
   })
   @IsString()
   @MinLength(3, { message: 'Reason must be at least 3 characters' })
+  @MaxLength(255, { message: 'Reason cannot exceed 255 characters' })
   reason: string;
 }

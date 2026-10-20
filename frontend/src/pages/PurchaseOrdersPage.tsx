@@ -1,24 +1,83 @@
 ﻿import { useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { Plus } from 'lucide-react'
 import { purchaseOrdersApi } from '../api/endpoints/purchase-orders.api'
-import { ActivityTable } from '../components/common/ActivityTable'
-import LoadingSpinner from '../components/common/Loading/LoadingSpinner'
-import toast from 'react-hot-toast'
-import axios from 'axios'
-import { useAuth } from '../contexts/AuthContext'
+import { PageHeader } from '../components/common/PageHeader'
 import { Button } from '../components/common/Buttons/Button'
-import { Modal } from '../components/common/Modal/Modal'
+import { DataTable, type Column } from '../components/common/Table/DataTable'
+import { Pagination } from '../components/common/Pagination/Pagination'
+import { SearchBar } from '../components/common/Search/SearchBar'
+import { StatusBadge } from '../components/common/Badges/StatusBadge'
 import { PurchaseOrderForm } from '../components/purchase-orders/PurchaseOrderForm'
-import type { CreatePurchaseOrderDto } from '../types'
+import { PurchaseOrderDetail } from '../components/purchase-orders/PurchaseOrderDetail'
+import { PO_STATUSES } from '../constants/statuses'
+import { usePermissions } from '../hooks/usePermissions'
+import { usePageTitle } from '../hooks/usePageTitle'
+import { formatDate, formatMoney, titleCase } from '../utils/format-utils'
+import type { PurchaseOrder, PurchaseOrderStatus } from '../types'
 
-export const PurchaseOrdersPage = () => {
-  const client = useQueryClient()
-  const { user } = useAuth()
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const query = useQuery({ queryKey: ['purchase-orders'], queryFn: () => purchaseOrdersApi.getAll({ page: 1, limit: 100 }) })
-  if (query.isLoading) return <LoadingSpinner />
-  const rows = query.data?.items || []
-  const transition = async (id: string, operation: (id: string) => Promise<unknown>, message: string) => { try { await operation(id); toast.success(message); void client.invalidateQueries({ queryKey: ['purchase-orders'] }) } catch (error: unknown) { toast.error(axios.isAxiosError(error) ? error.response?.data?.message || 'Unable to update purchase order' : 'Unable to update purchase order') } }
-  const create = async (data: CreatePurchaseOrderDto) => { try { await purchaseOrdersApi.create(data); toast.success('Purchase order created'); setIsCreateOpen(false); void client.invalidateQueries({ queryKey: ['purchase-orders'] }) } catch (error: unknown) { toast.error(axios.isAxiosError(error) ? error.response?.data?.message || 'Unable to create purchase order' : 'Unable to create purchase order') } }
-  return <div className="space-y-6"><div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-semibold uppercase tracking-widest text-cyan-700">Procurement</p><h1 className="mt-1 text-3xl font-semibold text-slate-950">Purchase orders</h1><p className="mt-2 text-sm text-slate-500">Track supplier commitments from draft through receiving.</p></div><Button onClick={() => setIsCreateOpen(true)}>Create purchase order</Button></div><ActivityTable title="Order register" description={`${query.data?.total || rows.length} purchase orders`} onRefresh={() => void query.refetch()} rows={rows} columns={[{ key: 'poNumber', label: 'PO number', render: (row) => <span className="font-mono font-semibold text-slate-900">{row.poNumber}</span> }, { key: 'supplier', label: 'Supplier', render: (row) => row.supplier?.name || row.supplierId }, { key: 'orderDate', label: 'Ordered', render: (row) => new Date(row.orderDate).toLocaleDateString() }, { key: 'totalAmount', label: 'Value', render: (row) => `KES ${Number(row.totalAmount || 0).toLocaleString()}` }, { key: 'status', label: 'Status', render: (row) => <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{row.status}</span> }, { key: 'actions', label: 'Actions', render: (row) => <span className="space-x-3">{row.status === 'DRAFT' && <button className="text-xs font-semibold text-cyan-700" onClick={() => void transition(row.id, purchaseOrdersApi.submit, 'Purchase order submitted')}>Submit</button>}{row.status === 'SUBMITTED' && user?.role === 'ADMIN' && <button className="text-xs font-semibold text-emerald-700" onClick={() => void transition(row.id, purchaseOrdersApi.approve, 'Purchase order approved')}>Approve</button>}{['DRAFT', 'SUBMITTED', 'APPROVED'].includes(row.status) && <button className="text-xs font-semibold text-rose-700" onClick={() => void transition(row.id, purchaseOrdersApi.cancel, 'Purchase order cancelled')}>Cancel</button>}{row.status === 'DRAFT' && user?.role === 'ADMIN' && <button className="text-xs font-semibold text-rose-700" onClick={() => void transition(row.id, purchaseOrdersApi.delete, 'Purchase order deleted')}>Delete</button>}</span> }]} /><Modal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} title="Create purchase order" size="xl"><PurchaseOrderForm onSubmit={(data) => void create(data)} onCancel={() => setIsCreateOpen(false)} /></Modal></div>
+export default function PurchaseOrdersPage() {
+  usePageTitle('Purchase orders')
+  const { can } = usePermissions()
+  const manage = can('po:manage')
+  const showCost = can('cost:view')
+
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState<'' | PurchaseOrderStatus>('')
+  const [page, setPage] = useState(1)
+  const [viewId, setViewId] = useState<string | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<PurchaseOrder | null>(null)
+  const limit = 15
+
+  const list = useQuery({
+    queryKey: ['purchase-orders', 'list', { search, status, page }],
+    queryFn: () => purchaseOrdersApi.getAll({ search: search || undefined, status: status || undefined, page, limit }),
+    placeholderData: keepPreviousData,
+  })
+
+  const columns: Column<PurchaseOrder>[] = [
+    { key: 'po', header: 'PO number', cell: (p) => <span className="font-semibold">{p.poNumber}</span> },
+    { key: 'supplier', header: 'Supplier', cell: (p) => p.supplier?.name ?? '-' },
+    { key: 'date', header: 'Ordered', hideBelow: 'md', cell: (p) => formatDate(p.orderDate) },
+    { key: 'expected', header: 'Expected', hideBelow: 'lg', cell: (p) => formatDate(p.expectedDate) },
+    { key: 'items', header: 'Lines', align: 'right', hideBelow: 'sm', cell: (p) => p._count?.items ?? 0 },
+    ...(showCost ? [{ key: 'total', header: 'Total', align: 'right' as const, cell: (p: PurchaseOrder) => <span className="font-semibold tabular-nums">{formatMoney(p.totalAmount)}</span> }] : []),
+    { key: 'status', header: 'Status', cell: (p) => <StatusBadge status={p.status} /> },
+  ]
+
+  const openNew = () => { setEditing(null); setFormOpen(true) }
+
+  return (
+    <>
+      <PageHeader
+        title="Purchase orders"
+        description={manage ? 'Order stock from suppliers: draft, submit, approve, then receive.' : 'Orders placed by the manager. Open an approved order to receive its delivery.'}
+        actions={manage && <Button icon={<Plus className="h-4 w-4" />} onClick={openNew}>New purchase order</Button>}
+      />
+      <section className="card overflow-hidden">
+        <div className="space-y-3 border-b border-line p-4">
+          <SearchBar value={search} onChange={(v) => { setSearch(v); setPage(1) }} placeholder="Search by PO number" className="max-w-sm" />
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Status">
+            {(['', ...PO_STATUSES] as const).map((s) => (
+              <button key={s || 'all'} aria-pressed={status === s} onClick={() => { setStatus(s as '' | PurchaseOrderStatus); setPage(1) }}
+                className={`rounded-full border px-3.5 py-1.5 text-sm font-medium transition ${status === s ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300' : 'border-line text-muted hover:text-fg'}`}>
+                {s ? titleCase(s) : 'All'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <DataTable
+          columns={columns} rows={list.data?.items ?? []} rowKey={(p) => p.id}
+          isLoading={list.isLoading} isError={list.isError} onRetry={() => void list.refetch()}
+          onRowClick={(p) => setViewId(p.id)}
+          empty={{ title: 'No purchase orders', description: manage ? 'Create your first purchase order to restock.' : 'Nothing has been ordered yet.', action: manage ? <Button icon={<Plus className="h-4 w-4" />} onClick={openNew}>New purchase order</Button> : undefined }}
+        />
+        {list.data && <Pagination page={list.data.page} totalPages={list.data.totalPages} total={list.data.total} limit={limit} onPageChange={setPage} />}
+      </section>
+
+      <PurchaseOrderDetail id={viewId} onClose={() => setViewId(null)} onEdit={(po) => { setViewId(null); setEditing(po); setFormOpen(true) }} />
+      <PurchaseOrderForm isOpen={formOpen} order={editing} onClose={() => setFormOpen(false)} />
+    </>
+  )
 }

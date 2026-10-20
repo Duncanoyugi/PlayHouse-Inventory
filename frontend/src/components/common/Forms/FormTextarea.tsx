@@ -1,33 +1,27 @@
-import React, { forwardRef } from 'react'
+import { forwardRef, useId, type TextareaHTMLAttributes } from 'react'
 import { clsx } from 'clsx'
 
-interface FormTextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+interface FormTextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string
   error?: string
+  hint?: string
 }
 
 export const FormTextarea = forwardRef<HTMLTextAreaElement, FormTextareaProps>(
-  ({ label, error, className, ...props }, ref) => {
+  ({ label, error, hint, className, id, required, rows = 3, ...props }, ref) => {
+    const auto = useId()
+    const areaId = id ?? auto
     return (
-      <div className="space-y-1">
+      <div>
         {label && (
-          <label className="block text-sm font-medium text-gray-700">
-            {label}
+          <label htmlFor={areaId} className="label">
+            {label}{required && <span className="ml-0.5 text-rose-500">*</span>}
           </label>
         )}
-        <textarea
-          ref={ref}
-          className={clsx(
-            'input-field min-h-[80px] resize-y',
-            error && 'border-red-500 focus:ring-red-500',
-            className
-          )}
-          {...props}
-        />
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        <textarea ref={ref} id={areaId} rows={rows} aria-invalid={!!error || undefined} className={clsx('input resize-y', error && 'input-error', className)} {...props} />
+        {error ? <p className="field-error">{error}</p> : hint ? <p className="hint">{hint}</p> : null}
       </div>
     )
-  }
+  },
 )
-
 FormTextarea.displayName = 'FormTextarea'

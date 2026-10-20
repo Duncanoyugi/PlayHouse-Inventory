@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsInt, IsString, Min, IsOptional, MinLength } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class StockOutDto {
@@ -8,6 +8,7 @@ export class StockOutDto {
     description: 'Product ID',
   })
   @IsString()
+  @IsNotEmpty()
   productId: string;
 
   @ApiProperty({
@@ -15,6 +16,7 @@ export class StockOutDto {
     description: 'Location ID',
   })
   @IsString()
+  @IsNotEmpty()
   locationId: string;
 
   @ApiProperty({
@@ -23,6 +25,7 @@ export class StockOutDto {
   })
   @IsInt()
   @Min(1, { message: 'Quantity must be at least 1' })
+  @Max(1_000_000, { message: 'Quantity is too large' })
   @Type(() => Number)
   quantity: number;
 
@@ -32,6 +35,7 @@ export class StockOutDto {
   })
   @IsString()
   @MinLength(3, { message: 'Reason must be at least 3 characters' })
+  @MaxLength(255, { message: 'Reason cannot exceed 255 characters' })
   reason: string;
 
   @ApiProperty({
@@ -41,5 +45,6 @@ export class StockOutDto {
   })
   @IsOptional()
   @IsString()
+  @MaxLength(100, { message: 'Reference cannot exceed 100 characters' })
   reference?: string;
 }

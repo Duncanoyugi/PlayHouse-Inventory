@@ -6,27 +6,24 @@ import {
   Patch,
   Param,
   Delete,
-  UseGuards,
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { BrandsService } from './brands.service';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { StatusQueryDto } from '../common/dto/status-query.dto';
 import { Roles } from '../common/decorators/roles.decorator';
-import { Public } from '../common/decorators/public.decorator';
+import { ALL_ROLES, ROLE } from '../common/constants';
 
 @ApiTags('brands')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('brands')
 export class BrandsController {
   constructor(private readonly brandsService: BrandsService) {}
 
   @Post()
-  @Roles('ADMIN')
+  @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Create a new brand' })
   @ApiResponse({ status: 201, description: 'Brand created' })
   @ApiResponse({ status: 409, description: 'Brand name already exists' })
@@ -34,15 +31,15 @@ export class BrandsController {
     return this.brandsService.create(createBrandDto);
   }
 
-  @Public()
+  @Roles(...ALL_ROLES)
   @Get()
   @ApiOperation({ summary: 'Get all brands' })
   @ApiResponse({ status: 200, description: 'Brands retrieved' })
-  findAll(@Query('status') status?: string) {
-    return this.brandsService.findAll(status);
+  findAll(@Query() query: StatusQueryDto) {
+    return this.brandsService.findAll(query.status);
   }
 
-  @Public()
+  @Roles(...ALL_ROLES)
   @Get(':id')
   @ApiOperation({ summary: 'Get a brand by ID' })
   @ApiResponse({ status: 200, description: 'Brand retrieved' })
@@ -52,7 +49,7 @@ export class BrandsController {
   }
 
   @Patch(':id')
-  @Roles('ADMIN')
+  @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Update a brand' })
   @ApiResponse({ status: 200, description: 'Brand updated' })
   @ApiResponse({ status: 404, description: 'Brand not found' })
@@ -61,7 +58,7 @@ export class BrandsController {
   }
 
   @Delete(':id')
-  @Roles('ADMIN')
+  @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Delete a brand' })
   @ApiResponse({ status: 200, description: 'Brand deleted' })
   @ApiResponse({ status: 404, description: 'Brand not found' })

@@ -1,67 +1,43 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Param, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { StockMovementsService } from './stock-movements.service';
 import { StockMovementFilterDto } from './dto/stock-movement-filter.dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { Roles } from '../common/decorators/roles.decorator';
+import { ALL_ROLES } from '../common/constants';
 
 @ApiTags('stock-movements')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('stock-movements')
 export class StockMovementsController {
   constructor(private readonly stockMovementsService: StockMovementsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get all stock movements with filters' })
-  @ApiResponse({ status: 200, description: 'Stock movements retrieved' })
-  @ApiQuery({ name: 'productId', required: false })
-  @ApiQuery({ name: 'locationId', required: false })
-  @ApiQuery({ name: 'type', required: false, enum: ['STOCK_IN', 'STOCK_OUT', 'ADJUSTMENT', 'DAMAGE', 'RETURN'] })
-  @ApiQuery({ name: 'userId', required: false })
-  @ApiQuery({ name: 'fromDate', required: false })
-  @ApiQuery({ name: 'toDate', required: false })
-  @ApiQuery({ name: 'page', required: false, default: 1 })
-  @ApiQuery({ name: 'limit', required: false, default: 20 })
-  findAll(
-    @Query() filters: StockMovementFilterDto,
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 20,
-  ) {
-    return this.stockMovementsService.findAll({
-      ...filters,
-      page: +page,
-      limit: +limit,
-    });
-  }
-
-  @Get(':id')
-  @ApiOperation({ summary: 'Get a stock movement by ID' })
-  @ApiResponse({ status: 200, description: 'Stock movement retrieved' })
-  @ApiResponse({ status: 404, description: 'Stock movement not found' })
-  findOne(@Param('id') id: string) {
-    return this.stockMovementsService.findOne(id);
+  @Roles(...ALL_ROLES)
+  @ApiOperation({ summary: 'List stock movements with filters' })
+  findAll(@Query() filters: StockMovementFilterDto) {
+    return this.stockMovementsService.findAll(filters);
   }
 
   @Get('product/:productId')
-  @ApiOperation({ summary: 'Get all stock movements for a product' })
-  @ApiResponse({ status: 200, description: 'Stock movements retrieved' })
-  findByProduct(
-    @Param('productId') productId: string,
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 20,
-  ) {
-    return this.stockMovementsService.findByProduct(productId, +page, +limit);
+  @Roles(...ALL_ROLES)
+  @ApiOperation({ summary: 'Movements of one product' })
+  findByProduct(@Param('productId') productId: string, @Query() { page, limit }: PaginationDto) {
+    return this.stockMovementsService.findByProduct(productId, page, limit);
   }
 
   @Get('location/:locationId')
-  @ApiOperation({ summary: 'Get all stock movements for a location' })
-  @ApiResponse({ status: 200, description: 'Stock movements retrieved' })
-  findByLocation(
-    @Param('locationId') locationId: string,
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 20,
-  ) {
-    return this.stockMovementsService.findByLocation(locationId, +page, +limit);
+  @Roles(...ALL_ROLES)
+  @ApiOperation({ summary: 'Movements at one location' })
+  findByLocation(@Param('locationId') locationId: string, @Query() { page, limit }: PaginationDto) {
+    return this.stockMovementsService.findByLocation(locationId, page, limit);
+  }
+
+  @Get(':id')
+  @Roles(...ALL_ROLES)
+  @ApiOperation({ summary: 'Get a stock movement' })
+  @ApiResponse({ status: 404, description: 'Stock movement not found' })
+  findOne(@Param('id') id: string) {
+    return this.stockMovementsService.findOne(id);
   }
 }

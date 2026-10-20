@@ -1,71 +1,46 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { GoodsReceiptsService } from './goods-receipts.service';
 import { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { GoodsReceiptQueryDto } from './dto/goods-receipt-query.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { ALL_ROLES } from '../common/constants';
 
 @ApiTags('goods-receipts')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('goods-receipts')
 export class GoodsReceiptsController {
   constructor(private readonly goodsReceiptsService: GoodsReceiptsService) {}
 
+  /** Receiving a delivery against an approved PO is "recording incoming items". */
   @Post()
-  @Roles('ADMIN', 'STOREKEEPER')
+  @Roles(...ALL_ROLES)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Receive goods from a purchase order' })
-  @ApiResponse({ status: 200, description: 'Goods received successfully' })
+  @ApiOperation({ summary: 'Receive goods against an approved purchase order' })
   @ApiResponse({ status: 400, description: 'Invalid receiving data' })
   @ApiResponse({ status: 404, description: 'Purchase order not found' })
-  create(@Body() createGoodsReceiptDto: CreateGoodsReceiptDto, @CurrentUser('id') userId: string) {
-    return this.goodsReceiptsService.create(createGoodsReceiptDto, userId);
+  create(@Body() dto: CreateGoodsReceiptDto, @CurrentUser('id') userId: string) {
+    return this.goodsReceiptsService.create(dto, userId);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all goods receipts' })
-  @ApiResponse({ status: 200, description: 'Goods receipts retrieved' })
-  findAll(
-    @Query('purchaseOrderId') purchaseOrderId?: string,
-    @Query('locationId') locationId?: string,
-    @Query('fromDate') fromDate?: string,
-    @Query('toDate') toDate?: string,
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 20,
-  ) {
-    return this.goodsReceiptsService.findAll({
-      purchaseOrderId,
-      locationId,
-      fromDate,
-      toDate,
-      page: +page,
-      limit: +limit,
-    });
+  @Roles(...ALL_ROLES)
+  @ApiOperation({ summary: 'List goods receipts' })
+  findAll(@Query() query: GoodsReceiptQueryDto) {
+    return this.goodsReceiptsService.findAll(query);
   }
 
   @Get('purchase-order/:purchaseOrderId')
-  @ApiOperation({ summary: 'Get all goods receipts for a purchase order' })
-  @ApiResponse({ status: 200, description: 'Goods receipts retrieved' })
+  @Roles(...ALL_ROLES)
+  @ApiOperation({ summary: 'Goods receipts of one purchase order' })
   findByPurchaseOrder(@Param('purchaseOrderId') purchaseOrderId: string) {
     return this.goodsReceiptsService.findByPurchaseOrder(purchaseOrderId);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a goods receipt by ID' })
-  @ApiResponse({ status: 200, description: 'Goods receipt retrieved' })
+  @Roles(...ALL_ROLES)
+  @ApiOperation({ summary: 'Get a goods receipt' })
   @ApiResponse({ status: 404, description: 'Goods receipt not found' })
   findOne(@Param('id') id: string) {
     return this.goodsReceiptsService.findOne(id);

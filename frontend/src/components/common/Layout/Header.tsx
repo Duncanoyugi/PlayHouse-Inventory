@@ -1,82 +1,93 @@
-import React from 'react'
-import { useAuth } from '../../../contexts/AuthContext'
-import { LogOut, User, Settings, Bell, Menu, AlertTriangle } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { LogOut, Menu, Moon, Sun, UserRound, KeyRound } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { useQuery } from '@tanstack/react-query'
-import { inventoryApi } from '../../../api/endpoints/inventory.api'
+import { useAuth } from '../../../contexts/AuthContext'
+import { useTheme } from '../../../contexts/ThemeContext'
+import { ROLE_LABEL } from '../../../constants/roles'
+import { ROUTES } from '../../../routes/route-constants'
+import { initials } from '../../../utils/format-utils'
+import { RoleBadge } from '../Badges/RoleBadge'
 
-export const Header: React.FC<{ onMenuClick: () => void }> = ({ onMenuClick }) => {
+export function Header({ onMenu }: { onMenu: () => void }) {
   const { user, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
-  const [notificationsOpen, setNotificationsOpen] = React.useState(false)
-  const lowStockQuery = useQuery({ queryKey: ['header-low-stock'], queryFn: () => inventoryApi.getLowStock(), staleTime: 60_000 })
-  const alertCount = (lowStockQuery.data?.lowStock.length || 0) + (lowStockQuery.data?.outOfStock.length || 0)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
 
-  const enableNotifications = () => {
-    if (!('Notification' in window)) {
-      toast.error('Browser notifications are not supported here')
-      return
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
-    void Notification.requestPermission().then((permission) => {
-      if (permission === 'granted') new Notification('PlayHouse Inventory', { body: alertCount ? `${alertCount} stock alerts need attention.` : 'You have no outstanding stock alerts.' })
-      else toast.error('Notification permission was not granted')
-    })
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [])
+
+  const signOut = () => {
+    logout()
+    toast.success('Signed out')
+    navigate(ROUTES.LOGIN, { replace: true })
   }
 
-  const handleLogout = () => {
-    logout()
-    toast.success('Logged out successfully')
-    navigate('/login')
-  }
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
   return (
-    <header className="border-b border-gray-200 bg-white px-4 py-3 sm:px-6">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <button type="button" aria-label="Open navigation" onClick={onMenuClick} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 lg:hidden"><Menu className="h-5 w-5" /></button>
-          <div className="min-w-0">
-          <h2 className="truncate text-base font-semibold text-gray-900 sm:text-lg">
-            Welcome back, {user?.fullName || 'User'}
-          </h2>
-          <p className="text-xs text-gray-500 sm:text-sm">
-            {user?.role === 'ADMIN' ? 'Administrator' : 'Storekeeper'}
-          </p>
-        </div>
-        </div>
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-line bg-surface/85 px-4 backdrop-blur-md sm:px-6">
+      <div className="flex items-center gap-3">
+        <button onClick={onMenu} className="rounded-xl p-2 text-muted hover:bg-surface-2 hover:text-fg lg:hidden" aria-label="Open menu">
+          <Menu className="h-5 w-5" />
+        </button>
+        <p className="hidden text-sm text-muted sm:block">
+          {greeting}, <span className="font-semibold text-fg">{user?.fullName.split(' ')[0]}</span>
+        </p>
+      </div>
 
-        <div className="flex shrink-0 items-center gap-1 sm:gap-4">
-          <div className="relative">
-          <button type="button" aria-label="Notifications" onClick={() => setNotificationsOpen((open) => !open)} className="relative rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600">
-            <Bell className="h-5 w-5" />
-            {alertCount > 0 && <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">{alertCount}</span>}
-          </button>
-          {notificationsOpen && <div className="absolute right-0 top-11 z-50 w-72 rounded-xl border border-gray-200 bg-white p-4 shadow-xl"><div className="flex items-center justify-between"><p className="font-semibold text-gray-900">Notifications</p><button type="button" onClick={enableNotifications} className="text-xs font-semibold text-cyan-700">Enable push</button></div>{alertCount ? <button type="button" onClick={() => navigate('/inventory')} className="mt-3 flex w-full items-start gap-2 rounded-lg bg-amber-50 p-3 text-left text-sm text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{alertCount} stock alert{alertCount === 1 ? '' : 's'} need attention.</button> : <p className="mt-3 text-sm text-gray-500">No new notifications.</p>}</div>}
-          </div>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={toggleTheme}
+          className="rounded-xl p-2.5 text-muted transition hover:bg-surface-2 hover:text-fg"
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+        >
+          {theme === 'dark' ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
+        </button>
 
+        <div ref={ref} className="relative">
           <button
-            onClick={() => navigate('/profile')}
-            aria-label="Profile"
-            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            onClick={() => setOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            className="flex items-center gap-2.5 rounded-xl py-1.5 pl-1.5 pr-3 transition hover:bg-surface-2"
           >
-            <User className="h-5 w-5" />
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-xs font-bold text-white">
+              {initials(user?.fullName)}
+            </span>
+            <span className="hidden text-left leading-tight sm:block">
+              <span className="block max-w-[140px] truncate text-sm font-semibold text-fg">{user?.fullName}</span>
+              <span className="block text-xs text-muted">{user ? ROLE_LABEL[user.role] : ''}</span>
+            </span>
           </button>
 
-          <button
-            onClick={() => navigate('/settings')}
-            aria-label="Settings"
-            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-          >
-            <Settings className="h-5 w-5" />
-          </button>
-
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 rounded-lg p-2 text-gray-600 transition-colors hover:bg-red-50 hover:text-red-600"
-          >
-            <LogOut className="h-5 w-5" />
-            <span className="hidden text-sm font-medium sm:inline">Logout</span>
-          </button>
+          {open && (
+            <div role="menu" className="animate-pop absolute right-0 mt-2 w-64 rounded-2xl border border-line bg-surface p-2 shadow-pop">
+              <div className="px-3 py-2.5">
+                <p className="truncate text-sm font-semibold text-fg">{user?.fullName}</p>
+                <p className="truncate text-xs text-muted">{user?.email}</p>
+                {user && <div className="mt-2"><RoleBadge role={user.role} /></div>}
+              </div>
+              <div className="my-1 border-t border-line" />
+              <Link role="menuitem" to={ROUTES.PROFILE} onClick={() => setOpen(false)} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-fg hover:bg-surface-2">
+                <UserRound className="h-4 w-4 text-muted" /> My profile
+              </Link>
+              <Link role="menuitem" to={ROUTES.PROFILE} onClick={() => setOpen(false)} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-fg hover:bg-surface-2">
+                <KeyRound className="h-4 w-4 text-muted" /> Change password
+              </Link>
+              <button role="menuitem" onClick={signOut} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-rose-600 hover:bg-rose-500/10">
+                <LogOut className="h-4 w-4" /> Sign out
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

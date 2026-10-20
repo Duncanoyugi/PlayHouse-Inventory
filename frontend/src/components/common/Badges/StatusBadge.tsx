@@ -1,31 +1,21 @@
-import React from 'react'
-import { clsx } from 'clsx'
+import { titleCase } from '../../../utils/format-utils'
 
-interface StatusBadgeProps {
-  status: string
-  className?: string
+type Tone = 'green' | 'amber' | 'red' | 'blue' | 'violet' | 'gray'
+
+const TONES: Record<string, Tone> = {
+  // generic
+  ACTIVE: 'green', INACTIVE: 'gray', DISCONTINUED: 'red', DISABLED: 'red',
+  // purchase orders
+  DRAFT: 'gray', SUBMITTED: 'blue', APPROVED: 'violet', PARTIALLY_RECEIVED: 'amber', RECEIVED: 'green', CANCELLED: 'red',
+  // stock movements
+  STOCK_IN: 'green', STOCK_OUT: 'blue', ADJUSTMENT: 'violet', DAMAGE: 'red', RETURN: 'amber',
 }
 
-const statusStyles: Record<string, string> = {
-  ACTIVE: 'bg-green-100 text-green-800',
-  INACTIVE: 'bg-gray-100 text-gray-800',
-  DISCONTINUED: 'bg-red-100 text-red-800',
-  DISABLED: 'bg-red-100 text-red-800',
-  DRAFT: 'bg-gray-100 text-gray-800',
-  SUBMITTED: 'bg-blue-100 text-blue-800',
-  APPROVED: 'bg-green-100 text-green-800',
-  PARTIALLY_RECEIVED: 'bg-yellow-100 text-yellow-800',
-  RECEIVED: 'bg-green-100 text-green-800',
-  CANCELLED: 'bg-red-100 text-red-800',
-  'IN STOCK': 'bg-green-100 text-green-800',
-  'LOW STOCK': 'bg-yellow-100 text-yellow-800',
-  'OUT OF STOCK': 'bg-red-100 text-red-800',
+export function StatusBadge({ status, label }: { status?: string | null; label?: string }) {
+  if (!status) return null
+  return <span className={`badge badge-${TONES[status] ?? 'gray'}`}>{label ?? titleCase(status)}</span>
 }
 
-export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, className }) => {
-  return (
-    <span className={clsx('badge', statusStyles[status] || 'badge-gray', className)}>
-      {status.replace('_', ' ')}
-    </span>
-  )
+export function Badge({ tone = 'gray', children }: { tone?: Tone; children: React.ReactNode }) {
+  return <span className={`badge badge-${tone}`}>{children}</span>
 }

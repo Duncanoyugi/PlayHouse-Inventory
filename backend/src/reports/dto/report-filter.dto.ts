@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString, IsUUID, IsDateString } from 'class-validator';
+import { IsDateString, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class ReportFilterDto {
   @ApiProperty({
@@ -7,7 +7,8 @@ export class ReportFilterDto {
     description: 'Filter by location ID',
   })
   @IsOptional()
-  @IsUUID('4', { message: 'Invalid location ID format' })
+  @IsString()
+  @MaxLength(40)
   locationId?: string;
 
   @ApiProperty({
@@ -15,7 +16,8 @@ export class ReportFilterDto {
     description: 'Filter by product ID',
   })
   @IsOptional()
-  @IsUUID('4', { message: 'Invalid product ID format' })
+  @IsString()
+  @MaxLength(40)
   productId?: string;
 
   @ApiProperty({

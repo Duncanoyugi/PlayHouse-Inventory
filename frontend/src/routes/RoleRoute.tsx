@@ -1,8 +1,11 @@
 import { Navigate, Outlet } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
+import type { Permission } from '../constants/permissions'
 import { ROUTES } from './route-constants'
 
-export const RoleRoute = ({ role }: { role: 'ADMIN' | 'STOREKEEPER' }) => {
-  const { user } = useAuth()
-  return user?.role === role ? <Outlet /> : <Navigate to={ROUTES.UNAUTHORIZED} replace />
+/** Blocks a whole route group unless the signed-in role holds the permission. */
+export function RoleRoute({ permission }: { permission: Permission }) {
+  const { can } = usePermissions()
+  if (!can(permission)) return <Navigate to={ROUTES.UNAUTHORIZED} replace />
+  return <Outlet />
 }

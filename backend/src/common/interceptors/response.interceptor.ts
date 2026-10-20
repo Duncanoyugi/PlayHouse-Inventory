@@ -5,18 +5,21 @@ import { map } from 'rxjs/operators';
 export interface Response<T> {
   success: boolean;
   data: T;
-  message?: string;
+  message: string;
   timestamp: string;
 }
 
 @Injectable()
 export class ResponseInterceptor<T> implements NestInterceptor<T, Response<T>> {
-  intercept(context: ExecutionContext, next: CallHandler): Observable<Response<T>> {
+  intercept(_context: ExecutionContext, next: CallHandler): Observable<Response<T>> {
     return next.handle().pipe(
-      map((data) => ({
+      map((payload: any) => ({
         success: true,
-        data: data?.data || data,
-        message: data?.message || 'Operation successful',
+        data: payload,
+        message:
+          payload && typeof payload === 'object' && typeof payload.message === 'string'
+            ? payload.message
+            : 'Operation successful',
         timestamp: new Date().toISOString(),
       })),
     );

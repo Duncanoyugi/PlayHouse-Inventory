@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { buildPage, dateRange, normalizePagination } from '../common/utils/pagination';
 
 @Injectable()
 export class AuditService {
@@ -37,8 +38,8 @@ export class AuditService {
     page?: number;
     limit?: number;
   }) {
-    const { userId, entity, entityId, action, fromDate, toDate, page = 1, limit = 20 } = filters;
-    const skip = (page - 1) * limit;
+    const { userId, entity, entityId, action, fromDate, toDate } = filters;
+    const { page, limit, skip } = normalizePagination(filters.page, filters.limit);
 
     const where: any = {};
 
@@ -58,15 +59,8 @@ export class AuditService {
       where.action = action;
     }
 
-    if (fromDate || toDate) {
-      where.createdAt = {};
-      if (fromDate) {
-        where.createdAt.gte = new Date(fromDate);
-      }
-      if (toDate) {
-        where.createdAt.lte = new Date(toDate);
-      }
-    }
+    const range = dateRange(fromDate, toDate);
+    if (range) where.createdAt = range;
 
     const [items, total] = await Promise.all([
       this.prisma.auditLog.findMany({
@@ -87,15 +81,7 @@ export class AuditService {
       this.prisma.auditLog.count({ where }),
     ]);
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrevious: page > 1,
-    };
+    return buildPage(items, total, page, limit);
   }
 
   async findByUser(userId: string, page: number = 1, limit: number = 20) {

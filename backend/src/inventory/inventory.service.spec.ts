@@ -1,290 +1,77 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { InventoryService } from './inventory.service';
-import { PrismaService } from '../prisma/prisma.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { MovementType, AdjustmentType } from '@prisma/client';
 import { vi } from 'vitest';
+import { InventoryService } from './inventory.service';
+import { StockLedgerService } from './stock-ledger.service';
 
 describe('InventoryService', () => {
+  let prisma: any;
+  let ledger: { increase: ReturnType<typeof vi.fn>; decrease: ReturnType<typeof vi.fn> };
   let service: InventoryService;
-  let prismaService: PrismaService;
 
-  const mockPrismaService = {
-    $transaction: vi.fn((callback) => callback(mockPrismaService)),
-    product: {
-      findUnique: vi.fn(),
-    },
-    location: {
-      findUnique: vi.fn(),
-    },
-    inventoryBalance: {
-      findUnique: vi.fn(),
-      update: vi.fn(),
-      create: vi.fn(),
-      findMany: vi.fn(),
-      count: vi.fn(),
-    },
-    stockMovement: {
-      create: vi.fn(),
-    },
-    stockAdjustment: {
-      create: vi.fn(),
-    },
-    auditLog: {
-      create: vi.fn(),
-    },
-  };
+  const activeProduct = { id: 'p1', name: 'Oraimo Charger', status: 'ACTIVE' };
+  const location = { id: 'l1', name: 'Main Store' };
+  const tx = { auditLog: { create: vi.fn() }, stockAdjustment: { create: vi.fn() } };
+  const result = { inventory: { id: 'b1', quantity: 10 }, movement: { id: 'm1' }, previousQuantity: 5, newQuantity: 10 };
 
-  beforeEach(async () => {
-    vi.resetAllMocks();
-    mockPrismaService.$transaction.mockImplementation((callback) =>
-      callback(mockPrismaService),
+  beforeEach(() => {
+    vi.clearAllMocks();
+    prisma = {
+      product: { findUnique: vi.fn().mockResolvedValue(activeProduct) },
+      location: { findUnique: vi.fn().mockResolvedValue(location) },
+      $transaction: vi.fn().mockImplementation((fn: any) => fn(tx)),
+    };
+    ledger = { increase: vi.fn().mockResolvedValue(result), decrease: vi.fn().mockResolvedValue(result) };
+    service = new InventoryService(prisma, ledger as unknown as StockLedgerService);
+  });
+
+  it('stock-in goes through the ledger and writes an audit entry', async () => {
+    const out = await service.stockIn(
+      { productId: 'p1', locationId: 'l1', quantity: 5, reason: 'Delivery' },
+      'u1',
     );
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        InventoryService,
-        { provide: PrismaService, useValue: mockPrismaService },
-      ],
-    }).compile();
-
-    service = module.get<InventoryService>(InventoryService);
-    prismaService = module.get<PrismaService>(PrismaService);
+    expect(ledger.increase).toHaveBeenCalledWith(tx, expect.objectContaining({ type: 'STOCK_IN', quantity: 5, userId: 'u1' }));
+    expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(out.message).toMatch(/Added 5/);
   });
 
-  describe('stockIn', () => {
-    const stockInDto = {
-      productId: 'product-123',
-      locationId: 'location-123',
-      quantity: 10,
-      reason: 'Test stock in',
-      reference: 'REF-001',
-    };
-
-    const mockProduct = {
-      id: 'product-123',
-      name: 'Test Product',
-      sku: 'TEST-001',
-    };
-
-    const mockLocation = {
-      id: 'location-123',
-      name: 'Test Location',
-    };
-
-    const mockInventory = {
-      id: 'inventory-123',
-      productId: 'product-123',
-      locationId: 'location-123',
-      quantity: 50,
-      reservedQuantity: 0,
-    };
-
-    it('should successfully add stock', async () => {
-      mockPrismaService.product.findUnique.mockResolvedValue(mockProduct);
-      mockPrismaService.location.findUnique.mockResolvedValue(mockLocation);
-      mockPrismaService.inventoryBalance.findUnique.mockResolvedValue(mockInventory);
-      mockPrismaService.inventoryBalance.update.mockResolvedValue({
-        ...mockInventory,
-        quantity: 60,
-      });
-      mockPrismaService.stockMovement.create.mockResolvedValue({
-        id: 'movement-123',
-        inventoryId: 'inventory-123',
-        productId: 'product-123',
-        type: MovementType.STOCK_IN,
-        quantity: 10,
-        previousQuantity: 50,
-        newQuantity: 60,
-        reason: 'Test stock in',
-        reference: 'REF-001',
-      });
-
-      const result = await service.stockIn(stockInDto, 'user-123');
-
-      expect(result).toHaveProperty('inventory');
-      expect(result).toHaveProperty('movement');
-      expect(result.inventory.quantity).toBe(60);
-      expect(result.movement.quantity).toBe(10);
-      expect(result.movement.type).toBe(MovementType.STOCK_IN);
-    });
-
-    it('should create new inventory if none exists', async () => {
-      mockPrismaService.product.findUnique.mockResolvedValue(mockProduct);
-      mockPrismaService.location.findUnique.mockResolvedValue(mockLocation);
-      mockPrismaService.inventoryBalance.findUnique.mockResolvedValue(null);
-      mockPrismaService.inventoryBalance.create.mockResolvedValue({
-        id: 'inventory-new',
-        productId: 'product-123',
-        locationId: 'location-123',
-        quantity: 10,
-        reservedQuantity: 0,
-      });
-
-      const result = await service.stockIn(stockInDto, 'user-123');
-
-      expect(mockPrismaService.inventoryBalance.create).toHaveBeenCalled();
-      expect(result.inventory.quantity).toBe(10);
-    });
-
-    it('should throw NotFoundException for invalid product', async () => {
-      mockPrismaService.product.findUnique.mockResolvedValue(null);
-
-      await expect(service.stockIn(stockInDto, 'user-123')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('should throw BadRequestException for invalid quantity', async () => {
-      const invalidDto = { ...stockInDto, quantity: 0 };
-      mockPrismaService.product.findUnique.mockResolvedValue(mockProduct);
-      mockPrismaService.location.findUnique.mockResolvedValue(mockLocation);
-
-      await expect(service.stockIn(invalidDto, 'user-123')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
+  it('refuses stock-in for products that are not active', async () => {
+    prisma.product.findUnique.mockResolvedValue({ ...activeProduct, status: 'DISCONTINUED' });
+    await expect(
+      service.stockIn({ productId: 'p1', locationId: 'l1', quantity: 1, reason: 'x y z' }, 'u1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(ledger.increase).not.toHaveBeenCalled();
   });
 
-  describe('stockOut', () => {
-    const stockOutDto = {
-      productId: 'product-123',
-      locationId: 'location-123',
-      quantity: 5,
-      reason: 'Test stock out',
-      reference: 'REF-002',
-    };
-
-    const mockProduct = {
-      id: 'product-123',
-      name: 'Test Product',
-    };
-
-    const mockLocation = {
-      id: 'location-123',
-      name: 'Test Location',
-    };
-
-    const mockInventory = {
-      id: 'inventory-123',
-      productId: 'product-123',
-      locationId: 'location-123',
-      quantity: 50,
-      reservedQuantity: 10,
-    };
-
-    it('should successfully remove stock', async () => {
-      mockPrismaService.product.findUnique.mockResolvedValue(mockProduct);
-      mockPrismaService.location.findUnique.mockResolvedValue(mockLocation);
-      mockPrismaService.inventoryBalance.findUnique.mockResolvedValue(mockInventory);
-      mockPrismaService.inventoryBalance.update.mockResolvedValue({
-        ...mockInventory,
-        quantity: 45,
-      });
-      mockPrismaService.stockMovement.create.mockResolvedValue({
-        type: MovementType.STOCK_OUT,
-        quantity: 5,
-      });
-
-      const result = await service.stockOut(stockOutDto, 'user-123');
-
-      expect(result.inventory.quantity).toBe(45);
-      expect(result.movement.type).toBe(MovementType.STOCK_OUT);
-    });
-
-    it('should throw BadRequestException for insufficient stock', async () => {
-      const insufficientDto = { ...stockOutDto, quantity: 50 };
-      mockPrismaService.product.findUnique.mockResolvedValue(mockProduct);
-      mockPrismaService.location.findUnique.mockResolvedValue(mockLocation);
-      mockPrismaService.inventoryBalance.findUnique.mockResolvedValue(mockInventory);
-
-      await expect(service.stockOut(insufficientDto, 'user-123')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('should throw BadRequestException for non-existent inventory', async () => {
-      mockPrismaService.product.findUnique.mockResolvedValue(mockProduct);
-      mockPrismaService.location.findUnique.mockResolvedValue(mockLocation);
-      mockPrismaService.inventoryBalance.findUnique.mockResolvedValue(null);
-
-      await expect(service.stockOut(stockOutDto, 'user-123')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
+  it('still allows stock-out of a discontinued product (clearing old stock)', async () => {
+    prisma.product.findUnique.mockResolvedValue({ ...activeProduct, status: 'DISCONTINUED' });
+    await service.stockOut({ productId: 'p1', locationId: 'l1', quantity: 2, reason: 'Sale' }, 'u1');
+    expect(ledger.decrease).toHaveBeenCalledWith(tx, expect.objectContaining({ type: 'STOCK_OUT' }));
   });
 
-  describe('adjust', () => {
-    const adjustDto = {
-      productId: 'product-123',
-      locationId: 'location-123',
-      quantity: 5,
-      type: AdjustmentType.INCREASE,
-      reason: 'Test adjustment',
-    };
+  it('404s for an unknown product or location', async () => {
+    prisma.product.findUnique.mockResolvedValue(null);
+    await expect(
+      service.stockOut({ productId: 'nope', locationId: 'l1', quantity: 1, reason: 'Sale' }, 'u1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
 
-    const mockProduct = {
-      id: 'product-123',
-      name: 'Test Product',
-    };
+    prisma.product.findUnique.mockResolvedValue(activeProduct);
+    prisma.location.findUnique.mockResolvedValue(null);
+    await expect(
+      service.stockOut({ productId: 'p1', locationId: 'nope', quantity: 1, reason: 'Sale' }, 'u1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
 
-    const mockLocation = {
-      id: 'location-123',
-      name: 'Test Location',
-    };
+  it('adjust INCREASE adds, adjust DECREASE removes without respecting reservations', async () => {
+    await service.adjust({ productId: 'p1', locationId: 'l1', quantity: 3, type: 'INCREASE' as any, reason: 'Count' }, 'u1');
+    expect(ledger.increase).toHaveBeenCalledTimes(1);
 
-    const mockInventory = {
-      id: 'inventory-123',
-      productId: 'product-123',
-      locationId: 'location-123',
-      quantity: 50,
-      reservedQuantity: 0,
-    };
+    await service.adjust({ productId: 'p1', locationId: 'l1', quantity: 3, type: 'DECREASE' as any, reason: 'Count' }, 'u1');
+    expect(ledger.decrease).toHaveBeenCalledWith(tx, expect.objectContaining({ type: 'ADJUSTMENT' }), false);
+    expect(tx.stockAdjustment.create).toHaveBeenCalledTimes(2);
+  });
 
-    it('should successfully increase stock', async () => {
-      mockPrismaService.product.findUnique.mockResolvedValue(mockProduct);
-      mockPrismaService.location.findUnique.mockResolvedValue(mockLocation);
-      mockPrismaService.inventoryBalance.findUnique.mockResolvedValue(mockInventory);
-      mockPrismaService.inventoryBalance.update.mockResolvedValue({
-        ...mockInventory,
-        quantity: 55,
-      });
-      mockPrismaService.stockMovement.create.mockResolvedValue({
-        type: MovementType.ADJUSTMENT,
-        quantity: 5,
-      });
-
-      const result = await service.adjust(adjustDto, 'user-123');
-
-      expect(result.inventory.quantity).toBe(55);
-      expect(result.movement.type).toBe(MovementType.ADJUSTMENT);
-      expect(result.adjustmentNumber).toBeDefined();
-    });
-
-    it('should successfully decrease stock', async () => {
-      const decreaseDto = { ...adjustDto, type: AdjustmentType.DECREASE };
-      mockPrismaService.product.findUnique.mockResolvedValue(mockProduct);
-      mockPrismaService.location.findUnique.mockResolvedValue(mockLocation);
-      mockPrismaService.inventoryBalance.findUnique.mockResolvedValue(mockInventory);
-      mockPrismaService.inventoryBalance.update.mockResolvedValue({
-        ...mockInventory,
-        quantity: 45,
-      });
-
-      const result = await service.adjust(decreaseDto, 'user-123');
-
-      expect(result.inventory.quantity).toBe(45);
-    });
-
-    it('should throw BadRequestException for decrease below zero', async () => {
-      const decreaseDto = { ...adjustDto, type: AdjustmentType.DECREASE, quantity: 60 };
-      mockPrismaService.product.findUnique.mockResolvedValue(mockProduct);
-      mockPrismaService.location.findUnique.mockResolvedValue(mockLocation);
-      mockPrismaService.inventoryBalance.findUnique.mockResolvedValue(mockInventory);
-
-      await expect(service.adjust(decreaseDto, 'user-123')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
+  it('damage write-offs respect reserved stock', async () => {
+    await service.damage({ productId: 'p1', locationId: 'l1', quantity: 1, reason: 'Cracked' }, 'u1');
+    expect(ledger.decrease).toHaveBeenCalledWith(tx, expect.objectContaining({ type: 'DAMAGE' }));
   });
 });

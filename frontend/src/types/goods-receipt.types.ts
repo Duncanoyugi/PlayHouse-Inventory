@@ -21,22 +21,28 @@ export interface GoodsReceipt {
   locationId: string
   receivedById: string
   receivedAt: string
-  notes?: string
+  notes?: string | null
   createdAt: string
   updatedAt: string
   purchaseOrder?: PurchaseOrder
   location?: Location
-  receiver?: User
+  receiver?: Pick<User, 'id' | 'fullName' | 'email'>
   items?: GoodsReceiptItem[]
+  _count?: { items: number }
 }
 
 export interface CreateGoodsReceiptDto {
   purchaseOrderId: string
   locationId: string
   notes?: string
-  items: {
-    productId: string
-    receivedQuantity: number
-    damagedQuantity: number
-  }[]
+  items: { productId: string; receivedQuantity: number; damagedQuantity: number }[]
+}
+
+export interface GoodsReceiptFilters {
+  purchaseOrderId?: string
+  locationId?: string
+  fromDate?: string
+  toDate?: string
+  page?: number
+  limit?: number
 }

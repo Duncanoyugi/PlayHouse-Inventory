@@ -1,159 +1,96 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
-import { AuthService } from './auth.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { vi } from 'vitest';
-
-vi.mock('bcryptjs', () => ({
-  compare: vi.fn(),
-  hash: vi.fn(),
-}));
+import { AuthService } from './auth.service';
 
 describe('AuthService', () => {
-  let service: AuthService;
-  let prismaService: PrismaService;
-  let jwtService: JwtService;
-
-  const mockUser = {
-    id: 'user-123',
-    email: 'test@example.com',
-    passwordHash: 'hashed_password',
-    fullName: 'Test User',
+  const passwordHash = bcrypt.hashSync('Correct1pass', 4);
+  const baseUser = {
+    id: 'u1',
+    email: 'keeper@playhouse.co.ke',
+    passwordHash,
+    fullName: 'Keeper',
     role: 'STOREKEEPER',
     status: 'ACTIVE',
     createdAt: new Date(),
     updatedAt: new Date(),
   };
 
-  const mockPrismaService = {
-    user: {
-      findUnique: vi.fn(),
-    },
-  };
+  let prisma: any;
+  let jwt: { sign: ReturnType<typeof vi.fn> };
+  let service: AuthService;
 
-  const mockJwtService = {
-    sign: vi.fn().mockReturnValue('mock-jwt-token'),
-    verify: vi.fn(),
-  };
-
-  const mockConfigService = {
-    get: vi.fn().mockReturnValue('test-secret'),
-  };
-
-  beforeEach(async () => {
-    vi.resetAllMocks();
-    mockJwtService.sign.mockReturnValue('mock-jwt-token');
-    mockConfigService.get.mockReturnValue('test-secret');
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AuthService,
-        { provide: PrismaService, useValue: mockPrismaService },
-        { provide: JwtService, useValue: mockJwtService },
-        { provide: ConfigService, useValue: mockConfigService },
-      ],
-    }).compile();
-
-    service = module.get<AuthService>(AuthService);
-    prismaService = module.get<PrismaService>(PrismaService);
-    jwtService = module.get<JwtService>(JwtService);
+  beforeEach(() => {
+    prisma = {
+      user: { findUnique: vi.fn(), update: vi.fn() },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+      $transaction: vi.fn().mockResolvedValue([]),
+    };
+    jwt = { sign: vi.fn().mockReturnValue('signed-token') };
+    service = new AuthService(prisma, jwt as any);
   });
 
-  describe('login', () => {
-    it('should successfully login with valid credentials', async () => {
-      const loginDto = {
-        email: 'test@example.com',
-        password: 'Test@123',
-      };
+  it('logs in with valid credentials and never returns the hash', async () => {
+    prisma.user.findUnique.mockResolvedValue(baseUser);
+    const result = await service.login({ email: 'KEEPER@playhouse.co.ke ', password: 'Correct1pass' });
 
-      vi.spyOn(bcrypt, 'compare').mockResolvedValue(true);
-      mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
-
-      const result = await service.login(loginDto);
-
-      expect(result).toHaveProperty('accessToken');
-      expect(result).toHaveProperty('user');
-      expect(result.user).not.toHaveProperty('passwordHash');
-      expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
-        where: { email: loginDto.email },
-      });
-    });
-
-    it('should throw UnauthorizedException for invalid email', async () => {
-      const loginDto = {
-        email: 'wrong@example.com',
-        password: 'Test@123',
-      };
-
-      mockPrismaService.user.findUnique.mockResolvedValue(null);
-
-      await expect(service.login(loginDto)).rejects.toThrow(UnauthorizedException);
-    });
-
-    it('should throw UnauthorizedException for invalid password', async () => {
-      const loginDto = {
-        email: 'test@example.com',
-        password: 'WrongPassword',
-      };
-
-      vi.spyOn(bcrypt, 'compare').mockResolvedValue(false);
-      mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
-
-      await expect(service.login(loginDto)).rejects.toThrow(UnauthorizedException);
-    });
-
-    it('should throw UnauthorizedException for disabled user', async () => {
-      const loginDto = {
-        email: 'test@example.com',
-        password: 'Test@123',
-      };
-
-      const disabledUser = { ...mockUser, status: 'DISABLED' };
-      mockPrismaService.user.findUnique.mockResolvedValue(disabledUser);
-
-      await expect(service.login(loginDto)).rejects.toThrow(UnauthorizedException);
-    });
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: 'keeper@playhouse.co.ke' } });
+    expect(result.accessToken).toBe('signed-token');
+    expect(result.user).not.toHaveProperty('passwordHash');
+    expect(jwt.sign).toHaveBeenCalledWith({ sub: 'u1', email: baseUser.email, role: 'STOREKEEPER' });
   });
 
-  describe('getProfile', () => {
-    it('should return user profile for valid ID', async () => {
-      const userId = 'user-123';
-      const expectedUser = {
-        id: userId,
-        email: 'test@example.com',
-        fullName: 'Test User',
-        role: 'STOREKEEPER',
-        status: 'ACTIVE',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
+  it('rejects a wrong password and an unknown e-mail with the same message', async () => {
+    prisma.user.findUnique.mockResolvedValueOnce(baseUser);
+    const wrongPassword = await service.login({ email: baseUser.email, password: 'nope' }).catch((e) => e);
 
-      mockPrismaService.user.findUnique.mockResolvedValue(expectedUser);
+    prisma.user.findUnique.mockResolvedValueOnce(null);
+    const unknownUser = await service.login({ email: 'x@y.com', password: 'nope' }).catch((e) => e);
 
-      const result = await service.getProfile(userId);
+    expect(wrongPassword).toBeInstanceOf(UnauthorizedException);
+    expect(unknownUser).toBeInstanceOf(UnauthorizedException);
+    expect(wrongPassword.message).toBe(unknownUser.message);
+  });
 
-      expect(result).toEqual(expectedUser);
-      expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
-        where: { id: userId },
-        select: {
-          id: true,
-          email: true,
-          fullName: true,
-          role: true,
-          status: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
+  it('does not reveal a disabled account to someone with the wrong password', async () => {
+    prisma.user.findUnique.mockResolvedValue({ ...baseUser, status: 'DISABLED' });
+    const error = await service.login({ email: baseUser.email, password: 'wrong' }).catch((e) => e);
+    expect(error.message).toBe('Invalid email or password');
+  });
+
+  it('blocks a disabled account that supplies the right password', async () => {
+    prisma.user.findUnique.mockResolvedValue({ ...baseUser, status: 'DISABLED' });
+    await expect(service.login({ email: baseUser.email, password: 'Correct1pass' })).rejects.toThrow(/disabled/i);
+  });
+
+  it('refuses to refresh the session of a disabled user', async () => {
+    prisma.user.findUnique.mockResolvedValue({ ...baseUser, status: 'DISABLED' });
+    await expect(service.refreshToken('u1')).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  describe('changePassword', () => {
+    it('requires the correct current password', async () => {
+      prisma.user.findUnique.mockResolvedValue(baseUser);
+      await expect(
+        service.changePassword('u1', { currentPassword: 'bad', newPassword: 'Another1pass' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it('should throw UnauthorizedException for invalid user ID', async () => {
-      mockPrismaService.user.findUnique.mockResolvedValue(null);
+    it('rejects reusing the same password', async () => {
+      prisma.user.findUnique.mockResolvedValue(baseUser);
+      await expect(
+        service.changePassword('u1', { currentPassword: 'Correct1pass', newPassword: 'Correct1pass' }),
+      ).rejects.toThrow(/different/);
+    });
 
-      await expect(service.getProfile('invalid-id')).rejects.toThrow(UnauthorizedException);
+    it('stores a new hash and writes an audit entry', async () => {
+      prisma.user.findUnique.mockResolvedValue(baseUser);
+      const result = await service.changePassword('u1', {
+        currentPassword: 'Correct1pass',
+        newPassword: 'Brandnew2pass',
+      });
+      expect(result.message).toMatch(/changed/i);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     });
   });
 });

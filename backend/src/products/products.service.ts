@@ -2,6 +2,8 @@ import { Injectable, ConflictException, NotFoundException } from '@nestjs/common
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ProductQueryDto } from './dto/product-query.dto';
+import { buildPage, normalizePagination } from '../common/utils/pagination';
 
 @Injectable()
 export class ProductsService {
@@ -66,16 +68,9 @@ export class ProductsService {
     });
   }
 
-  async findAll(filters: {
-    search?: string;
-    categoryId?: string;
-    brandId?: string;
-    status?: string;
-    page?: number;
-    limit?: number;
-  }) {
-    const { search, categoryId, brandId, status, page = 1, limit = 20 } = filters;
-    const skip = (page - 1) * limit;
+  async findAll(filters: ProductQueryDto) {
+    const { search, categoryId, brandId, status } = filters;
+    const { page, limit, skip } = normalizePagination(filters.page, filters.limit);
 
     const where: any = {};
 
@@ -104,7 +99,7 @@ export class ProductsService {
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ name: 'asc' }, { createdAt: 'desc' }],
         include: {
           category: true,
           brand: true,
@@ -145,15 +140,7 @@ export class ProductsService {
       };
     });
 
-    return {
-      items: productsWithStock,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrevious: page > 1,
-    };
+    return buildPage(productsWithStock, total, page, limit);
   }
 
   async findOne(id: string) {

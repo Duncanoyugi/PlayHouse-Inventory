@@ -1,0 +1,7 @@
+export const MOVEMENT_TYPES = ['STOCK_IN', 'STOCK_OUT', 'ADJUSTMENT', 'DAMAGE', 'RETURN'] as const
+
+export const PO_STATUSES = [
+  'DRAFT', 'SUBMITTED', 'APPROVED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'CANCELLED',
+] as const
+
+export const ENTITY_STATUSES = ['ACTIVE', 'INACTIVE', 'DISCONTINUED'] as const

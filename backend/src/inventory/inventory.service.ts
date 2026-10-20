@@ -1,37 +1,65 @@
-import {
-  Injectable,
-  BadRequestException,
-  NotFoundException,
-  ConflictException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomBytes } from 'crypto';
+import { AdjustmentType, MovementType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { StockLedgerService } from './stock-ledger.service';
 import { StockInDto } from './dto/stock-in.dto';
 import { StockOutDto } from './dto/stock-out.dto';
 import { AdjustmentDto } from './dto/adjustment.dto';
 import { DamageDto } from './dto/damage.dto';
-import { MovementType, AdjustmentType } from '@prisma/client';
+import { InventoryQueryDto } from './dto/inventory-query.dto';
+import { buildPage, normalizePagination } from '../common/utils/pagination';
+import { runInTransaction } from '../common/utils/transaction';
+
+const BALANCE_INCLUDE = {
+  product: { include: { category: true, brand: true } },
+  location: true,
+} satisfies Prisma.InventoryBalanceInclude;
 
 @Injectable()
 export class InventoryService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private ledger: StockLedgerService,
+  ) {}
 
-  async findAll(filters: {
-    locationId?: string;
-    productId?: string;
-    page?: number;
-    limit?: number;
-  }) {
-    const { locationId, productId, page = 1, limit = 20 } = filters;
-    const skip = (page - 1) * limit;
+  // ------------------------------------------------------------------
+  // READS
+  // ------------------------------------------------------------------
 
-    const where: any = {};
+  async findAll(filters: InventoryQueryDto) {
+    const { page, limit, skip } = normalizePagination(filters.page, filters.limit);
+    const where: Prisma.InventoryBalanceWhereInput = {};
 
-    if (locationId) {
-      where.locationId = locationId;
+    if (filters.locationId) where.locationId = filters.locationId;
+    if (filters.productId) where.productId = filters.productId;
+    if (filters.search?.trim()) {
+      const search = filters.search.trim();
+      where.product = {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { sku: { contains: search, mode: 'insensitive' } },
+          { barcode: { contains: search, mode: 'insensitive' } },
+        ],
+      };
     }
 
-    if (productId) {
-      where.productId = productId;
+    // Stock-level filters compare columns, which Prisma cannot express, so they
+    // are applied in memory over the (already filtered) set.
+    if (filters.stockLevel === 'low' || filters.stockLevel === 'out') {
+      const all = await this.prisma.inventoryBalance.findMany({
+        where,
+        include: BALANCE_INCLUDE,
+        orderBy: [{ product: { name: 'asc' } }],
+      });
+      const matching = all
+        .map((item) => this.withAvailability(item))
+        .filter((item) =>
+          filters.stockLevel === 'out'
+            ? item.availableQuantity <= 0
+            : item.availableQuantity > 0 && item.availableQuantity <= item.product.reorderLevel,
+        );
+      return buildPage(matching.slice(skip, skip + limit), matching.length, page, limit);
     }
 
     const [items, total] = await Promise.all([
@@ -39,51 +67,22 @@ export class InventoryService {
         where,
         skip,
         take: limit,
-        include: {
-          product: {
-            include: {
-              category: true,
-              brand: true,
-            },
-          },
-          location: true,
-        },
-        orderBy: { updatedAt: 'desc' },
+        include: BALANCE_INCLUDE,
+        orderBy: [{ product: { name: 'asc' } }],
       }),
       this.prisma.inventoryBalance.count({ where }),
     ]);
 
-    // Calculate available quantity
-    const itemsWithAvailable = items.map((item) => ({
-      ...item,
-      availableQuantity: item.quantity - item.reservedQuantity,
-    }));
-
-    return {
-      items: itemsWithAvailable,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrevious: page > 1,
-    };
+    return buildPage(items.map((item) => this.withAvailability(item)), total, page, limit);
   }
 
   async findByProduct(productId: string) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-    });
-
-    if (!product) {
-      throw new NotFoundException('Product not found');
-    }
+    const product = await this.prisma.product.findUnique({ where: { id: productId } });
+    if (!product) throw new NotFoundException('Product not found');
 
     const inventory = await this.prisma.inventoryBalance.findMany({
       where: { productId },
-      include: {
-        location: true,
-      },
+      include: { location: true },
     });
 
     const totalQuantity = inventory.reduce((sum, inv) => sum + inv.quantity, 0);
@@ -101,140 +100,69 @@ export class InventoryService {
   }
 
   async findByLocation(locationId: string) {
-    const location = await this.prisma.location.findUnique({
-      where: { id: locationId },
-    });
+    const location = await this.prisma.location.findUnique({ where: { id: locationId } });
+    if (!location) throw new NotFoundException('Location not found');
 
-    if (!location) {
-      throw new NotFoundException('Location not found');
-    }
-
-    return this.prisma.inventoryBalance.findMany({
+    const items = await this.prisma.inventoryBalance.findMany({
       where: { locationId },
-      include: {
-        product: {
-          include: {
-            category: true,
-            brand: true,
-          },
-        },
-        location: true,
-      },
+      include: BALANCE_INCLUDE,
+      orderBy: [{ product: { name: 'asc' } }],
     });
+    return items.map((item) => this.withAvailability(item));
   }
 
   async getLowStock(locationId?: string) {
-    const where: any = {};
-
-    if (locationId) {
-      where.locationId = locationId;
-    }
-
     const inventory = await this.prisma.inventoryBalance.findMany({
-      where,
-      include: {
-        product: true,
-        location: true,
+      where: {
+        ...(locationId ? { locationId } : {}),
+        product: { status: 'ACTIVE' },
       },
+      include: { product: true, location: true },
     });
 
-    // Filter for low stock items
-    const lowStockItems = inventory.filter((item) => {
-      const available = item.quantity - item.reservedQuantity;
-      return available > 0 && available <= item.product.reorderLevel;
-    });
-
-    const outOfStockItems = inventory.filter((item) => {
-      const available = item.quantity - item.reservedQuantity;
-      return available <= 0;
+    const enriched = inventory.map((item) => {
+      const availableQuantity = item.quantity - item.reservedQuantity;
+      return {
+        ...item,
+        availableQuantity,
+        reorderLevel: item.product.reorderLevel,
+        shortfall: item.product.reorderLevel - availableQuantity,
+      };
     });
 
     return {
-      lowStock: lowStockItems.map((item) => ({
-        ...item,
-        availableQuantity: item.quantity - item.reservedQuantity,
-        shortfall: item.product.reorderLevel - (item.quantity - item.reservedQuantity),
-      })),
-      outOfStock: outOfStockItems.map((item) => ({
-        ...item,
-        availableQuantity: item.quantity - item.reservedQuantity,
-      })),
+      lowStock: enriched
+        .filter((i) => i.availableQuantity > 0 && i.availableQuantity <= i.product.reorderLevel)
+        .sort((a, b) => a.availableQuantity - b.availableQuantity),
+      outOfStock: enriched.filter((i) => i.availableQuantity <= 0),
     };
   }
 
-  async stockIn(stockInDto: StockInDto, userId: string) {
-    const { productId, locationId, quantity, reason, reference } = stockInDto;
+  // ------------------------------------------------------------------
+  // WRITES - every change goes through the atomic StockLedgerService
+  // ------------------------------------------------------------------
 
-    // Validate product exists
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-    });
+  /** Incoming goods (storekeeper + manager). */
+  async stockIn(dto: StockInDto, userId: string) {
+    const { product, location } = await this.loadTarget(dto.productId, dto.locationId);
 
-    if (!product) {
-      throw new NotFoundException('Product not found');
+    if (product.status !== 'ACTIVE') {
+      throw new BadRequestException(
+        `Cannot receive stock for a ${product.status.toLowerCase()} product. Reactivate it first`,
+      );
     }
 
-    // Validate location exists
-    const location = await this.prisma.location.findUnique({
-      where: { id: locationId },
-    });
-
-    if (!location) {
-      throw new NotFoundException('Location not found');
-    }
-
-    // Validate quantity
-    if (quantity <= 0) {
-      throw new BadRequestException('Quantity must be greater than 0');
-    }
-
-    // Execute transaction
-    return this.prisma.$transaction(async (tx) => {
-      // Find or create inventory balance
-      let inventory = await tx.inventoryBalance.findUnique({
-        where: {
-          productId_locationId: {
-            productId,
-            locationId,
-          },
-        },
+    return runInTransaction(this.prisma, async (tx) => {
+      const { inventory, movement, previousQuantity, newQuantity } = await this.ledger.increase(tx, {
+        productId: dto.productId,
+        locationId: dto.locationId,
+        quantity: dto.quantity,
+        type: MovementType.STOCK_IN,
+        reason: dto.reason,
+        reference: dto.reference,
+        userId,
       });
 
-      const previousQuantity = inventory?.quantity || 0;
-      const newQuantity = previousQuantity + quantity;
-
-      if (inventory) {
-        inventory = await tx.inventoryBalance.update({
-          where: { id: inventory.id },
-          data: { quantity: newQuantity },
-        });
-      } else {
-        inventory = await tx.inventoryBalance.create({
-          data: {
-            productId,
-            locationId,
-            quantity: newQuantity,
-            reservedQuantity: 0,
-          },
-        });
-      }
-
-      // Create stock movement
-      const movement = await tx.stockMovement.create({
-        data: {
-          inventoryId: inventory.id,
-          productId,
-          type: MovementType.STOCK_IN,
-          quantity,
-          previousQuantity,
-          newQuantity,
-          reason,
-          reference: reference || null,
-          createdById: userId,
-        },
-      });
-
-      // Create audit log
       await tx.auditLog.create({
         data: {
           userId,
@@ -242,13 +170,13 @@ export class InventoryService {
           entity: 'InventoryBalance',
           entityId: inventory.id,
           newValue: {
-            productId,
-            locationId,
+            productId: dto.productId,
+            locationId: dto.locationId,
             previousQuantity,
             newQuantity,
-            quantityAdded: quantity,
-            reason,
-            reference,
+            quantityAdded: dto.quantity,
+            reason: dto.reason,
+            reference: dto.reference ?? null,
           },
         },
       });
@@ -256,87 +184,26 @@ export class InventoryService {
       return {
         inventory,
         movement,
-        message: `Successfully added ${quantity} units of ${product.name} to ${location.name}`,
+        message: `Added ${dto.quantity} unit(s) of ${product.name} to ${location.name}`,
       };
     });
   }
 
-  async stockOut(stockOutDto: StockOutDto, userId: string) {
-    const { productId, locationId, quantity, reason, reference } = stockOutDto;
+  /** Outgoing goods (storekeeper + manager). */
+  async stockOut(dto: StockOutDto, userId: string) {
+    const { product, location } = await this.loadTarget(dto.productId, dto.locationId);
 
-    // Validate product exists
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-    });
-
-    if (!product) {
-      throw new NotFoundException('Product not found');
-    }
-
-    // Validate location exists
-    const location = await this.prisma.location.findUnique({
-      where: { id: locationId },
-    });
-
-    if (!location) {
-      throw new NotFoundException('Location not found');
-    }
-
-    // Validate quantity
-    if (quantity <= 0) {
-      throw new BadRequestException('Quantity must be greater than 0');
-    }
-
-    // Execute transaction
-    return this.prisma.$transaction(async (tx) => {
-      // Find inventory balance
-      const inventory = await tx.inventoryBalance.findUnique({
-        where: {
-          productId_locationId: {
-            productId,
-            locationId,
-          },
-        },
+    return runInTransaction(this.prisma, async (tx) => {
+      const { inventory, movement, previousQuantity, newQuantity } = await this.ledger.decrease(tx, {
+        productId: dto.productId,
+        locationId: dto.locationId,
+        quantity: dto.quantity,
+        type: MovementType.STOCK_OUT,
+        reason: dto.reason,
+        reference: dto.reference,
+        userId,
       });
 
-      if (!inventory) {
-        throw new BadRequestException('No inventory found for this product at this location');
-      }
-
-      // Check available stock (quantity - reservedQuantity)
-      const availableQuantity = inventory.quantity - inventory.reservedQuantity;
-
-      if (availableQuantity < quantity) {
-        throw new BadRequestException(
-          `Insufficient stock available. Required: ${quantity}, Available: ${availableQuantity}`,
-        );
-      }
-
-      const previousQuantity = inventory.quantity;
-      const newQuantity = previousQuantity - quantity;
-
-      // Update inventory
-      const updatedInventory = await tx.inventoryBalance.update({
-        where: { id: inventory.id },
-        data: { quantity: newQuantity },
-      });
-
-      // Create stock movement
-      const movement = await tx.stockMovement.create({
-        data: {
-          inventoryId: inventory.id,
-          productId,
-          type: MovementType.STOCK_OUT,
-          quantity,
-          previousQuantity,
-          newQuantity,
-          reason,
-          reference: reference || null,
-          createdById: userId,
-        },
-      });
-
-      // Create audit log
       await tx.auditLog.create({
         data: {
           userId,
@@ -344,145 +211,13 @@ export class InventoryService {
           entity: 'InventoryBalance',
           entityId: inventory.id,
           newValue: {
-            productId,
-            locationId,
+            productId: dto.productId,
+            locationId: dto.locationId,
             previousQuantity,
             newQuantity,
-            quantityRemoved: quantity,
-            reason,
-            reference,
-            availableBefore: availableQuantity,
-          },
-        },
-      });
-
-      return {
-        inventory: updatedInventory,
-        movement,
-        message: `Successfully removed ${quantity} units of ${product.name} from ${location.name}`,
-      };
-    });
-  }
-
-  async adjust(adjustmentDto: AdjustmentDto, userId: string) {
-    const { productId, locationId, quantity, type, reason } = adjustmentDto;
-
-    // Validate product exists
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-    });
-
-    if (!product) {
-      throw new NotFoundException('Product not found');
-    }
-
-    // Validate location exists
-    const location = await this.prisma.location.findUnique({
-      where: { id: locationId },
-    });
-
-    if (!location) {
-      throw new NotFoundException('Location not found');
-    }
-
-    // Validate quantity
-    if (quantity <= 0) {
-      throw new BadRequestException('Quantity must be greater than 0');
-    }
-
-    // Execute transaction
-    return this.prisma.$transaction(async (tx) => {
-      // Find inventory balance
-      let inventory = await tx.inventoryBalance.findUnique({
-        where: {
-          productId_locationId: {
-            productId,
-            locationId,
-          },
-        },
-      });
-
-      const previousQuantity = inventory?.quantity || 0;
-      let newQuantity: number;
-
-      if (type === AdjustmentType.INCREASE) {
-        newQuantity = previousQuantity + quantity;
-      } else {
-        // DECREASE
-        if (previousQuantity < quantity) {
-          throw new BadRequestException(
-            `Cannot decrease stock below 0. Current: ${previousQuantity}, Decrease: ${quantity}`,
-          );
-        }
-        newQuantity = previousQuantity - quantity;
-      }
-
-      // Update or create inventory
-      if (inventory) {
-        inventory = await tx.inventoryBalance.update({
-          where: { id: inventory.id },
-          data: { quantity: newQuantity },
-        });
-      } else {
-        if (type === AdjustmentType.DECREASE) {
-          throw new BadRequestException('Cannot decrease stock for product with no inventory');
-        }
-        inventory = await tx.inventoryBalance.create({
-          data: {
-            productId,
-            locationId,
-            quantity: newQuantity,
-            reservedQuantity: 0,
-          },
-        });
-      }
-
-      // Generate adjustment number
-      const adjustmentNumber = `ADJ-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-
-      // Create stock adjustment record
-      await tx.stockAdjustment.create({
-        data: {
-          adjustmentNumber,
-          inventoryId: inventory.id,
-          quantity,
-          type,
-          reason,
-          createdById: userId,
-        },
-      });
-
-      // Create stock movement
-      const movement = await tx.stockMovement.create({
-        data: {
-          inventoryId: inventory.id,
-          productId,
-          type: MovementType.ADJUSTMENT,
-          quantity,
-          previousQuantity,
-          newQuantity,
-          reason,
-          reference: adjustmentNumber,
-          createdById: userId,
-        },
-      });
-
-      // Create audit log
-      await tx.auditLog.create({
-        data: {
-          userId,
-          action: 'STOCK_ADJUSTMENT',
-          entity: 'InventoryBalance',
-          entityId: inventory.id,
-          newValue: {
-            productId,
-            locationId,
-            previousQuantity,
-            newQuantity,
-            adjustmentType: type,
-            adjustmentQuantity: quantity,
-            reason,
-            adjustmentNumber,
+            quantityRemoved: dto.quantity,
+            reason: dto.reason,
+            reference: dto.reference ?? null,
           },
         },
       });
@@ -490,88 +225,86 @@ export class InventoryService {
       return {
         inventory,
         movement,
-        adjustmentNumber,
-        message: `Successfully adjusted stock of ${product.name} at ${location.name} (${type}: ${quantity} units)`,
+        message: `Removed ${dto.quantity} unit(s) of ${product.name} from ${location.name}`,
       };
     });
   }
 
-  async damage(damageDto: DamageDto, userId: string) {
-    const { productId, locationId, quantity, reason, reference } = damageDto;
+  /** Stock-count correction (manager only). */
+  async adjust(dto: AdjustmentDto, userId: string) {
+    const { product, location } = await this.loadTarget(dto.productId, dto.locationId);
+    const adjustmentNumber = `ADJ-${Date.now()}-${randomBytes(3).toString('hex').toUpperCase()}`;
 
-    // Validate product exists
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-    });
+    return runInTransaction(this.prisma, async (tx) => {
+      const entry = {
+        productId: dto.productId,
+        locationId: dto.locationId,
+        quantity: dto.quantity,
+        type: MovementType.ADJUSTMENT,
+        reason: dto.reason,
+        reference: adjustmentNumber,
+        userId,
+      };
 
-    if (!product) {
-      throw new NotFoundException('Product not found');
-    }
+      const result =
+        dto.type === AdjustmentType.INCREASE
+          ? await this.ledger.increase(tx, entry)
+          : await this.ledger.decrease(tx, entry, false);
 
-    // Validate location exists
-    const location = await this.prisma.location.findUnique({
-      where: { id: locationId },
-    });
-
-    if (!location) {
-      throw new NotFoundException('Location not found');
-    }
-
-    // Validate quantity
-    if (quantity <= 0) {
-      throw new BadRequestException('Quantity must be greater than 0');
-    }
-
-    // Execute transaction
-    return this.prisma.$transaction(async (tx) => {
-      // Find inventory balance
-      const inventory = await tx.inventoryBalance.findUnique({
-        where: {
-          productId_locationId: {
-            productId,
-            locationId,
-          },
-        },
-      });
-
-      if (!inventory) {
-        throw new BadRequestException('No inventory found for this product at this location');
-      }
-
-      // Check available stock (quantity - reservedQuantity)
-      const availableQuantity = inventory.quantity - inventory.reservedQuantity;
-
-      if (availableQuantity < quantity) {
-        throw new BadRequestException(
-          `Insufficient stock available for damage. Required: ${quantity}, Available: ${availableQuantity}`,
-        );
-      }
-
-      const previousQuantity = inventory.quantity;
-      const newQuantity = previousQuantity - quantity;
-
-      // Update inventory
-      const updatedInventory = await tx.inventoryBalance.update({
-        where: { id: inventory.id },
-        data: { quantity: newQuantity },
-      });
-
-      // Create stock movement
-      const movement = await tx.stockMovement.create({
+      await tx.stockAdjustment.create({
         data: {
-          inventoryId: inventory.id,
-          productId,
-          type: MovementType.DAMAGE,
-          quantity,
-          previousQuantity,
-          newQuantity,
-          reason,
-          reference: reference || null,
+          adjustmentNumber,
+          inventoryId: result.inventory.id,
+          quantity: dto.quantity,
+          type: dto.type,
+          reason: dto.reason,
           createdById: userId,
         },
       });
 
-      // Create audit log
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'STOCK_ADJUSTMENT',
+          entity: 'InventoryBalance',
+          entityId: result.inventory.id,
+          newValue: {
+            productId: dto.productId,
+            locationId: dto.locationId,
+            previousQuantity: result.previousQuantity,
+            newQuantity: result.newQuantity,
+            adjustmentType: dto.type,
+            adjustmentQuantity: dto.quantity,
+            reason: dto.reason,
+            adjustmentNumber,
+          },
+        },
+      });
+
+      return {
+        inventory: result.inventory,
+        movement: result.movement,
+        adjustmentNumber,
+        message: `Adjusted stock of ${product.name} at ${location.name} (${dto.type}: ${dto.quantity})`,
+      };
+    });
+  }
+
+  /** Write-off of damaged stock (manager only). */
+  async damage(dto: DamageDto, userId: string) {
+    const { product, location } = await this.loadTarget(dto.productId, dto.locationId);
+
+    return runInTransaction(this.prisma, async (tx) => {
+      const { inventory, movement, previousQuantity, newQuantity } = await this.ledger.decrease(tx, {
+        productId: dto.productId,
+        locationId: dto.locationId,
+        quantity: dto.quantity,
+        type: MovementType.DAMAGE,
+        reason: dto.reason,
+        reference: dto.reference,
+        userId,
+      });
+
       await tx.auditLog.create({
         data: {
           userId,
@@ -579,49 +312,38 @@ export class InventoryService {
           entity: 'InventoryBalance',
           entityId: inventory.id,
           newValue: {
-            productId,
-            locationId,
+            productId: dto.productId,
+            locationId: dto.locationId,
             previousQuantity,
             newQuantity,
-            quantityDamaged: quantity,
-            reason,
-            reference,
+            quantityDamaged: dto.quantity,
+            reason: dto.reason,
+            reference: dto.reference ?? null,
           },
         },
       });
 
       return {
-        inventory: updatedInventory,
+        inventory,
         movement,
-        message: `Successfully recorded ${quantity} damaged units of ${product.name} at ${location.name}`,
+        message: `Recorded ${dto.quantity} damaged unit(s) of ${product.name} at ${location.name}`,
       };
     });
   }
 
-  async getInventoryValue(locationId?: string) {
-    const where: any = {};
+  // ------------------------------------------------------------------
 
-    if (locationId) {
-      where.locationId = locationId;
-    }
+  private async loadTarget(productId: string, locationId: string) {
+    const [product, location] = await Promise.all([
+      this.prisma.product.findUnique({ where: { id: productId } }),
+      this.prisma.location.findUnique({ where: { id: locationId } }),
+    ]);
+    if (!product) throw new NotFoundException('Product not found');
+    if (!location) throw new NotFoundException('Location not found');
+    return { product, location };
+  }
 
-    const inventory = await this.prisma.inventoryBalance.findMany({
-      where,
-      include: {
-        product: true,
-        location: true,
-      },
-    });
-
-    return inventory.map((item) => ({
-      product: item.product,
-      location: item.location,
-      quantity: item.quantity,
-      reservedQuantity: item.reservedQuantity,
-      availableQuantity: item.quantity - item.reservedQuantity,
-      costPrice: item.product.costPrice,
-      totalValue: item.quantity * Number(item.product.costPrice),
-      availableValue: (item.quantity - item.reservedQuantity) * Number(item.product.costPrice),
-    }));
+  private withAvailability<T extends { quantity: number; reservedQuantity: number }>(item: T) {
+    return { ...item, availableQuantity: item.quantity - item.reservedQuantity };
   }
 }

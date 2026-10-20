@@ -1,255 +1,173 @@
 import {
-  Injectable,
+  BadRequestException,
   ConflictException,
-  NotFoundException,
   ForbiddenException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
+import { Prisma, Role, UserStatus } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import * as bcrypt from 'bcryptjs';
+import { BCRYPT_ROUNDS } from '../common/constants';
+import { buildPage, normalizePagination } from '../common/utils/pagination';
+
+const USER_SELECT = {
+  id: true,
+  email: true,
+  fullName: true,
+  role: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.UserSelect;
 
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async create(createUserDto: CreateUserDto) {
-    // Check if user with email already exists
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: createUserDto.email },
+  async create(dto: CreateUserDto, actorId: string) {
+    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (existing) throw new ConflictException('A user with this email already exists');
+
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: dto.email,
+          passwordHash,
+          fullName: dto.fullName,
+          role: dto.role,
+          status: dto.status ?? UserStatus.ACTIVE,
+        },
+        select: USER_SELECT,
+      });
+      await this.audit(tx, actorId, 'USER_CREATE', user.id, { email: user.email, role: user.role });
+      return user;
     });
-
-    if (existingUser) {
-      throw new ConflictException('User with this email already exists');
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
-
-    // Create user
-    const user = await this.prisma.user.create({
-      data: {
-        email: createUserDto.email,
-        passwordHash: hashedPassword,
-        fullName: createUserDto.fullName,
-        role: createUserDto.role,
-        status: createUserDto.status || 'ACTIVE',
-      },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        role: true,
-        status: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
-
-    return user;
   }
 
-  async findAll(page: number = 1, limit: number = 20) {
-    const skip = (page - 1) * limit;
-
-    const [users, total] = await Promise.all([
+  async findAll(pageInput?: number, limitInput?: number) {
+    const { page, limit, skip } = normalizePagination(pageInput, limitInput);
+    const [items, total] = await Promise.all([
       this.prisma.user.findMany({
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          email: true,
-          fullName: true,
-          role: true,
-          status: true,
-          createdAt: true,
-          updatedAt: true,
-        },
+        select: USER_SELECT,
       }),
       this.prisma.user.count(),
     ]);
-
-    return {
-      items: users,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrevious: page > 1,
-    };
+    return buildPage(items, total, page, limit);
   }
 
   async findOne(id: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        role: true,
-        status: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
+    const user = await this.prisma.user.findUnique({ where: { id }, select: USER_SELECT });
+    if (!user) throw new NotFoundException('User not found');
     return user;
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto) {
-    // Check if user exists
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-    });
+  async update(id: string, dto: UpdateUserDto, actorId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
 
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
+    const losesAdminAccess =
+      (dto.role !== undefined && dto.role !== Role.ADMIN) ||
+      (dto.status !== undefined && dto.status === UserStatus.DISABLED);
 
-    // Check if updating email and it's already taken
-    if (updateUserDto.email) {
-      const existingUser = await this.prisma.user.findUnique({
-        where: { email: updateUserDto.email },
-      });
-
-      if (existingUser && existingUser.id !== id) {
-        throw new ConflictException('Email already taken');
+    if (user.role === Role.ADMIN && losesAdminAccess) {
+      if (id === actorId) {
+        throw new ForbiddenException('You cannot demote or disable your own account');
       }
+      await this.assertNotLastAdmin(id);
     }
 
-    // Prepare update data
-    const updateData: any = {
-      fullName: updateUserDto.fullName,
-      email: updateUserDto.email,
-      role: updateUserDto.role,
-      status: updateUserDto.status,
-    };
-
-    // If password is being updated, hash it
-    if (updateUserDto.password) {
-      updateData.passwordHash = await bcrypt.hash(updateUserDto.password, 10);
+    if (dto.email && dto.email !== user.email) {
+      const taken = await this.prisma.user.findUnique({ where: { email: dto.email } });
+      if (taken) throw new ConflictException('Email already in use');
     }
 
-    // Remove undefined values
-    Object.keys(updateData).forEach((key) => {
-      if (updateData[key] === undefined) {
-        delete updateData[key];
-      }
-    });
+    const data: Prisma.UserUpdateInput = {};
+    if (dto.fullName !== undefined) data.fullName = dto.fullName;
+    if (dto.email !== undefined) data.email = dto.email;
+    if (dto.role !== undefined) data.role = dto.role;
+    if (dto.status !== undefined) data.status = dto.status;
+    if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
 
-    // Update user
-    const updatedUser = await this.prisma.user.update({
-      where: { id },
-      data: updateData,
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        role: true,
-        status: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({ where: { id }, data, select: USER_SELECT });
+      await this.audit(
+        tx,
+        actorId,
+        'USER_UPDATE',
+        id,
+        {
+          fields: Object.keys(data).map((k) => (k === 'passwordHash' ? 'password' : k)),
+          role: updated.role,
+          status: updated.status,
+        },
+        { role: user.role, status: user.status },
+      );
+      return updated;
     });
-
-    return updatedUser;
   }
 
-  async remove(id: string) {
-    // Check if user exists
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    // Prevent deleting admin if it's the last admin
-    const adminCount = await this.prisma.user.count({
-      where: { role: 'ADMIN', status: 'ACTIVE' },
-    });
-
-    if (user.role === 'ADMIN' && adminCount <= 1) {
-      throw new ForbiddenException('Cannot delete the last admin user');
-    }
-
-    // Soft delete - set status to DISABLED
-    const deletedUser = await this.prisma.user.update({
-      where: { id },
-      data: { status: 'DISABLED' },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        role: true,
-        status: true,
-      },
-    });
-
-    return deletedUser;
+  /** Users are never hard-deleted (their history must stay attributable): they are disabled. */
+  remove(id: string, actorId: string) {
+    return this.setStatus(id, UserStatus.DISABLED, actorId, 'USER_DISABLE');
   }
 
-  async disable(id: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    // Prevent disabling self
-    // This would need to be checked in the controller with current user
-
-    const disabledUser = await this.prisma.user.update({
-      where: { id },
-      data: { status: 'DISABLED' },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        role: true,
-        status: true,
-      },
-    });
-
-    return disabledUser;
+  disable(id: string, actorId: string) {
+    return this.setStatus(id, UserStatus.DISABLED, actorId, 'USER_DISABLE');
   }
 
-  async enable(id: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    const enabledUser = await this.prisma.user.update({
-      where: { id },
-      data: { status: 'ACTIVE' },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        role: true,
-        status: true,
-      },
-    });
-
-    return enabledUser;
+  enable(id: string, actorId: string) {
+    return this.setStatus(id, UserStatus.ACTIVE, actorId, 'USER_ENABLE');
   }
 
   async findByEmail(email: string) {
-    return this.prisma.user.findUnique({
-      where: { email },
+    return this.prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+  }
+
+  // ------------------------------------------------------------------
+
+  private async setStatus(id: string, status: UserStatus, actorId: string, action: string) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('User not found');
+
+    if (status === UserStatus.DISABLED) {
+      if (id === actorId) throw new ForbiddenException('You cannot disable your own account');
+      if (user.role === Role.ADMIN) await this.assertNotLastAdmin(id);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({ where: { id }, data: { status }, select: USER_SELECT });
+      await this.audit(tx, actorId, action, id, { email: user.email, status });
+      return updated;
+    });
+  }
+
+  private async assertNotLastAdmin(excludingId: string) {
+    const others = await this.prisma.user.count({
+      where: { role: Role.ADMIN, status: UserStatus.ACTIVE, id: { not: excludingId } },
+    });
+    if (others === 0) {
+      throw new BadRequestException('At least one active manager account must remain');
+    }
+  }
+
+  private audit(
+    tx: Prisma.TransactionClient,
+    actorId: string,
+    action: string,
+    entityId: string,
+    newValue: Prisma.InputJsonValue,
+    oldValue?: Prisma.InputJsonValue,
+  ) {
+    return tx.auditLog.create({
+      data: { userId: actorId, action, entity: 'User', entityId, newValue, oldValue },
     });
   }
 }

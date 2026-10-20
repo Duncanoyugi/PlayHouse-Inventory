@@ -1,13 +1,12 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { LoadingSpinner } from '../components/common/Loading/LoadingSpinner'
 import { ROUTES } from './route-constants'
 
-export const PublicRoute = () => {
+/** Login page: signed-in users are sent straight to their dashboard. */
+export function PublicRoute() {
   const { isAuthenticated, isLoading } = useAuth()
-
-  if (isLoading) {
-    return <div className="flex items-center justify-center min-h-screen">Loading...</div>
-  }
-
-  return isAuthenticated ? <Navigate to={ROUTES.DASHBOARD} replace /> : <Outlet />
+  if (isLoading) return <LoadingSpinner fullPage />
+  if (isAuthenticated) return <Navigate to={ROUTES.DASHBOARD} replace />
+  return <Outlet />
 }

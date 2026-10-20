@@ -1,231 +1,162 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  ConflictException,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { MovementType, Prisma, PurchaseOrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { StockLedgerService } from '../inventory/stock-ledger.service';
 import { CreateGoodsReceiptDto } from './dto/create-goods-receipt.dto';
-import { PurchaseOrderStatus } from '@prisma/client';
+import { GoodsReceiptQueryDto } from './dto/goods-receipt-query.dto';
+import { buildPage, dateRange, normalizePagination } from '../common/utils/pagination';
+import { monthPrefix, nextSequence, runInTransaction } from '../common/utils/transaction';
+
+const USER_SELECT = { id: true, fullName: true, email: true } as const;
+const RECEIVABLE: PurchaseOrderStatus[] = [
+  PurchaseOrderStatus.APPROVED,
+  PurchaseOrderStatus.PARTIALLY_RECEIVED,
+];
 
 @Injectable()
 export class GoodsReceiptsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private ledger: StockLedgerService,
+  ) {}
 
-  async create(createGoodsReceiptDto: CreateGoodsReceiptDto, userId: string) {
-    const { purchaseOrderId, locationId, items, notes } = createGoodsReceiptDto;
+  async create(dto: CreateGoodsReceiptDto, userId: string) {
+    const { purchaseOrderId, locationId, items, notes } = dto;
 
-    // Validate purchase order exists and is APPROVED
-    const purchaseOrder = await this.prisma.purchaseOrder.findUnique({
-      where: { id: purchaseOrderId },
-      include: {
-        items: {
-          include: {
-            product: true,
-          },
-        },
-      },
-    });
-
-    if (!purchaseOrder) {
-      throw new NotFoundException('Purchase order not found');
-    }
-
-    if (
-      purchaseOrder.status !== PurchaseOrderStatus.APPROVED &&
-      purchaseOrder.status !== PurchaseOrderStatus.PARTIALLY_RECEIVED
-    ) {
-      throw new BadRequestException(
-        `Purchase order must be APPROVED before receiving. Current status: ${purchaseOrder.status}`,
-      );
-    }
-
-    // Validate location exists
-    const location = await this.prisma.location.findUnique({
-      where: { id: locationId },
-    });
-
-    if (!location) {
-      throw new NotFoundException('Location not found');
-    }
-
-    // Validate receiving items
-    const validationErrors: string[] = [];
-
+    // Cheap structural checks first (no DB needed).
+    const seen = new Set<string>();
     for (const item of items) {
-      const poItem = purchaseOrder.items.find((poi) => poi.productId === item.productId);
-
-      if (!poItem) {
-        validationErrors.push(`Product ${item.productId} not found in purchase order`);
-        continue;
+      if (seen.has(item.productId)) {
+        throw new BadRequestException('Each product may appear only once per receipt');
       }
-
-      const remainingQuantity = poItem.quantity - poItem.receivedQuantity;
-
-      if (item.receivedQuantity + item.damagedQuantity > remainingQuantity) {
-        validationErrors.push(
-          `Product ${poItem.product.name}: Received (${item.receivedQuantity}) + Damaged (${item.damagedQuantity}) ` +
-          `exceeds remaining ordered quantity (${remainingQuantity})`,
-        );
-      }
-
-      if (item.damagedQuantity > item.receivedQuantity) {
-        validationErrors.push(
-          `Product ${poItem.product.name}: Damaged quantity (${item.damagedQuantity}) cannot exceed received quantity (${item.receivedQuantity})`,
+      seen.add(item.productId);
+      const damaged = item.damagedQuantity ?? 0;
+      if (damaged > item.receivedQuantity) {
+        throw new BadRequestException(
+          'Damaged quantity cannot exceed the received quantity for a line',
         );
       }
     }
 
-    if (validationErrors.length > 0) {
-      throw new BadRequestException(validationErrors.join('; '));
-    }
+    const location = await this.prisma.location.findUnique({ where: { id: locationId } });
+    if (!location) throw new NotFoundException('Location not found');
 
-    // Generate receipt number
-    const receiptNumber = await this.generateReceiptNumber();
+    return runInTransaction(this.prisma, async (tx) => {
+      // 1. Lock the purchase order row (and verify it is still receivable). Because
+      //    the status check and the lock are one statement, two clerks receiving the
+      //    same PO at once are serialised and the second sees the first one's totals.
+      const locked = await tx.purchaseOrder.updateMany({
+        where: { id: purchaseOrderId, status: { in: RECEIVABLE } },
+        data: { updatedAt: new Date() },
+      });
 
-    // Execute transaction
-    return this.prisma.$transaction(async (tx) => {
-      // Create goods receipt
+      if (locked.count === 0) {
+        const existing = await tx.purchaseOrder.findUnique({
+          where: { id: purchaseOrderId },
+          select: { status: true },
+        });
+        if (!existing) throw new NotFoundException('Purchase order not found');
+        throw new BadRequestException(
+          `Only approved purchase orders can be received. Current status: ${existing.status}`,
+        );
+      }
+
+      // 2. Fresh PO lines (read after the lock).
+      const purchaseOrder = await tx.purchaseOrder.findUniqueOrThrow({
+        where: { id: purchaseOrderId },
+        include: { items: { include: { product: true } } },
+      });
+
+      // 3. Validate against up-to-date remaining quantities.
+      const errors: string[] = [];
+      for (const item of items) {
+        const line = purchaseOrder.items.find((l) => l.productId === item.productId);
+        if (!line) {
+          errors.push(`Product ${item.productId} is not part of ${purchaseOrder.poNumber}`);
+          continue;
+        }
+        const remaining = line.quantity - line.receivedQuantity;
+        if (item.receivedQuantity > remaining) {
+          errors.push(
+            `${line.product.name}: receiving ${item.receivedQuantity} but only ${remaining} still outstanding`,
+          );
+        }
+      }
+      if (errors.length) throw new BadRequestException(errors.join('; '));
+
+      // 4. Claim the quantities with a guarded atomic update (defence in depth).
+      for (const item of items) {
+        const line = purchaseOrder.items.find((l) => l.productId === item.productId)!;
+        const claimed = await tx.purchaseOrderItem.updateMany({
+          where: {
+            id: line.id,
+            receivedQuantity: { lte: line.quantity - item.receivedQuantity },
+          },
+          data: { receivedQuantity: { increment: item.receivedQuantity } },
+        });
+        if (claimed.count === 0) {
+          throw new ConflictException(
+            `${line.product.name} was just received by someone else. Refresh and try again`,
+          );
+        }
+      }
+
+      // 5. Create the receipt document.
+      const receiptNumber = await this.generateReceiptNumber(tx);
       const goodsReceipt = await tx.goodsReceipt.create({
         data: {
           receiptNumber,
           purchaseOrderId,
           locationId,
           receivedById: userId,
-          notes: notes || null,
+          notes: notes?.trim() || null,
           items: {
             create: items.map((item) => {
-              const poItem = purchaseOrder.items.find((poi) => poi.productId === item.productId);
-              if (!poItem) {
-                throw new BadRequestException(`Product ${item.productId} not found in purchase order`);
-              }
-
+              const line = purchaseOrder.items.find((l) => l.productId === item.productId)!;
+              const damaged = item.damagedQuantity ?? 0;
               return {
                 productId: item.productId,
-                orderedQuantity: poItem.quantity,
+                orderedQuantity: line.quantity,
                 receivedQuantity: item.receivedQuantity,
-                acceptedQuantity: item.receivedQuantity - item.damagedQuantity,
-                damagedQuantity: item.damagedQuantity,
+                acceptedQuantity: item.receivedQuantity - damaged,
+                damagedQuantity: damaged,
               };
             }),
           },
         },
         include: {
           location: true,
-          receiver: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-            },
-          },
-          items: {
-            include: {
-              product: true,
-            },
-          },
+          receiver: { select: USER_SELECT },
+          items: { include: { product: true } },
         },
       });
 
-      // Update purchase order items received quantities
+      // 6. Put accepted units into stock through the atomic ledger.
+      const stockInResults: { productId: string; acceptedQuantity: number; movementId: string }[] = [];
       for (const item of items) {
-        const poItem = purchaseOrder.items.find((poi) => poi.productId === item.productId);
-        if (!poItem) {
-          throw new BadRequestException(`Product ${item.productId} not found in purchase order`);
-        }
-
-        const newReceivedQuantity = poItem.receivedQuantity + item.receivedQuantity;
-
-        await tx.purchaseOrderItem.update({
-          where: { id: poItem.id },
-          data: { receivedQuantity: newReceivedQuantity },
+        const accepted = item.receivedQuantity - (item.damagedQuantity ?? 0);
+        if (accepted <= 0) continue;
+        const { movement } = await this.ledger.increase(tx, {
+          productId: item.productId,
+          locationId,
+          quantity: accepted,
+          type: MovementType.STOCK_IN,
+          reason: `Goods received from PO: ${purchaseOrder.poNumber}`,
+          reference: receiptNumber,
+          userId,
         });
+        stockInResults.push({ productId: item.productId, acceptedQuantity: accepted, movementId: movement.id });
       }
 
-      // Update purchase order status
-      const allItems = purchaseOrder.items;
-      let allReceived = true;
-
-      for (const poItem of allItems) {
-        const receivedItem = items.find((item) => item.productId === poItem.productId);
-        const receivedQty = receivedItem ? receivedItem.receivedQuantity : 0;
-        const totalReceived = poItem.receivedQuantity + receivedQty;
-
-        if (totalReceived < poItem.quantity) {
-          allReceived = false;
-          break;
-        }
-      }
-
-      const newStatus = allReceived
+      // 7. Recompute PO status from the stored lines.
+      const lines = await tx.purchaseOrderItem.findMany({ where: { purchaseOrderId } });
+      const fullyReceived = lines.every((l) => l.receivedQuantity >= l.quantity);
+      const newStatus = fullyReceived
         ? PurchaseOrderStatus.RECEIVED
         : PurchaseOrderStatus.PARTIALLY_RECEIVED;
+      await tx.purchaseOrder.update({ where: { id: purchaseOrderId }, data: { status: newStatus } });
 
-      await tx.purchaseOrder.update({
-        where: { id: purchaseOrderId },
-        data: { status: newStatus },
-      });
-
-      // Add stock to inventory for each item
-      const stockInResults = [];
-
-      for (const item of items) {
-        const acceptedQuantity = item.receivedQuantity - item.damagedQuantity;
-
-        if (acceptedQuantity > 0) {
-          // Find or create inventory balance
-          let inventory = await tx.inventoryBalance.findUnique({
-            where: {
-              productId_locationId: {
-                productId: item.productId,
-                locationId,
-              },
-            },
-          });
-
-          const previousQuantity = inventory?.quantity || 0;
-          const newQuantity = previousQuantity + acceptedQuantity;
-
-          if (inventory) {
-            inventory = await tx.inventoryBalance.update({
-              where: { id: inventory.id },
-              data: { quantity: newQuantity },
-            });
-          } else {
-            inventory = await tx.inventoryBalance.create({
-              data: {
-                productId: item.productId,
-                locationId,
-                quantity: newQuantity,
-                reservedQuantity: 0,
-              },
-            });
-          }
-
-          // Create stock movement
-          const movement = await tx.stockMovement.create({
-            data: {
-              inventoryId: inventory.id,
-              productId: item.productId,
-              type: 'STOCK_IN',
-              quantity: acceptedQuantity,
-              previousQuantity,
-              newQuantity,
-              reason: `Goods received from PO: ${purchaseOrder.poNumber}`,
-              reference: receiptNumber,
-              createdById: userId,
-            },
-          });
-
-          stockInResults.push({
-            productId: item.productId,
-            acceptedQuantity,
-            movement,
-          });
-        }
-      }
-
-      // Create audit log
+      // 8. Audit trail.
       await tx.auditLog.create({
         data: {
           userId,
@@ -237,10 +168,10 @@ export class GoodsReceiptsService {
             purchaseOrderId,
             purchaseOrderNumber: purchaseOrder.poNumber,
             locationId,
-            totalItems: items.length,
-            totalReceived: items.reduce((sum, item) => sum + item.receivedQuantity, 0),
-            totalDamaged: items.reduce((sum, item) => sum + item.damagedQuantity, 0),
-            totalAccepted: items.reduce((sum, item) => sum + (item.receivedQuantity - item.damagedQuantity), 0),
+            resultingStatus: newStatus,
+            totalReceived: items.reduce((s, i) => s + i.receivedQuantity, 0),
+            totalDamaged: items.reduce((s, i) => s + (i.damagedQuantity ?? 0), 0),
+            totalAccepted: stockInResults.reduce((s, r) => s + r.acceptedQuantity, 0),
           },
         },
       });
@@ -248,41 +179,19 @@ export class GoodsReceiptsService {
       return {
         goodsReceipt,
         stockInResults,
-        message: `Successfully received ${items.length} items from ${purchaseOrder.poNumber}`,
+        purchaseOrderStatus: newStatus,
+        message: `Received ${items.length} line(s) against ${purchaseOrder.poNumber} (${receiptNumber})`,
       };
     });
   }
 
-  async findAll(filters: {
-    purchaseOrderId?: string;
-    locationId?: string;
-    fromDate?: string;
-    toDate?: string;
-    page?: number;
-    limit?: number;
-  }) {
-    const { purchaseOrderId, locationId, fromDate, toDate, page = 1, limit = 20 } = filters;
-    const skip = (page - 1) * limit;
-
-    const where: any = {};
-
-    if (purchaseOrderId) {
-      where.purchaseOrderId = purchaseOrderId;
-    }
-
-    if (locationId) {
-      where.locationId = locationId;
-    }
-
-    if (fromDate || toDate) {
-      where.createdAt = {};
-      if (fromDate) {
-        where.createdAt.gte = new Date(fromDate);
-      }
-      if (toDate) {
-        where.createdAt.lte = new Date(toDate);
-      }
-    }
+  async findAll(query: GoodsReceiptQueryDto) {
+    const { page, limit, skip } = normalizePagination(query.page, query.limit);
+    const where: Prisma.GoodsReceiptWhereInput = {};
+    if (query.purchaseOrderId) where.purchaseOrderId = query.purchaseOrderId;
+    if (query.locationId) where.locationId = query.locationId;
+    const range = dateRange(query.fromDate, query.toDate);
+    if (range) where.createdAt = range;
 
     const [items, total] = await Promise.all([
       this.prisma.goodsReceipt.findMany({
@@ -291,38 +200,16 @@ export class GoodsReceiptsService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          purchaseOrder: {
-            include: {
-              supplier: true,
-            },
-          },
+          purchaseOrder: { include: { supplier: true } },
           location: true,
-          receiver: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-            },
-          },
-          _count: {
-            select: {
-              items: true,
-            },
-          },
+          receiver: { select: USER_SELECT },
+          _count: { select: { items: true } },
         },
       }),
       this.prisma.goodsReceipt.count({ where }),
     ]);
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrevious: page > 1,
-    };
+    return buildPage(items, total, page, limit);
   }
 
   async findOne(id: string) {
@@ -332,47 +219,16 @@ export class GoodsReceiptsService {
         purchaseOrder: {
           include: {
             supplier: true,
-            creator: {
-              select: {
-                id: true,
-                fullName: true,
-                email: true,
-              },
-            },
-            approver: {
-              select: {
-                id: true,
-                fullName: true,
-                email: true,
-              },
-            },
+            creator: { select: USER_SELECT },
+            approver: { select: USER_SELECT },
           },
         },
         location: true,
-        receiver: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-          },
-        },
-        items: {
-          include: {
-            product: {
-              include: {
-                category: true,
-                brand: true,
-              },
-            },
-          },
-        },
+        receiver: { select: USER_SELECT },
+        items: { include: { product: { include: { category: true, brand: true } } } },
       },
     });
-
-    if (!goodsReceipt) {
-      throw new NotFoundException('Goods receipt not found');
-    }
-
+    if (!goodsReceipt) throw new NotFoundException('Goods receipt not found');
     return goodsReceipt;
   }
 
@@ -382,40 +238,20 @@ export class GoodsReceiptsService {
       orderBy: { createdAt: 'desc' },
       include: {
         location: true,
-        receiver: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-          },
-        },
-        items: {
-          include: {
-            product: true,
-          },
-        },
-        _count: {
-          select: {
-            items: true,
-          },
-        },
+        receiver: { select: USER_SELECT },
+        items: { include: { product: true } },
+        _count: { select: { items: true } },
       },
     });
   }
 
-  async generateReceiptNumber(): Promise<string> {
-    const year = new Date().getFullYear();
-    const month = String(new Date().getMonth() + 1).padStart(2, '0');
-
-    const count = await this.prisma.goodsReceipt.count({
-      where: {
-        receiptNumber: {
-          startsWith: `GR-${year}-${month}`,
-        },
-      },
+  private async generateReceiptNumber(tx: Prisma.TransactionClient): Promise<string> {
+    const prefix = monthPrefix('GR');
+    const last = await tx.goodsReceipt.findFirst({
+      where: { receiptNumber: { startsWith: prefix } },
+      orderBy: { receiptNumber: 'desc' },
+      select: { receiptNumber: true },
     });
-
-    const sequence = String(count + 1).padStart(4, '0');
-    return `GR-${year}-${month}-${sequence}`;
+    return `${prefix}${String(nextSequence(last?.receiptNumber)).padStart(4, '0')}`;
   }
 }

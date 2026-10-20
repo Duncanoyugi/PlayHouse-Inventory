@@ -6,27 +6,24 @@ import {
   Patch,
   Param,
   Delete,
-  UseGuards,
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { StatusQueryDto } from '../common/dto/status-query.dto';
 import { Roles } from '../common/decorators/roles.decorator';
-import { Public } from '../common/decorators/public.decorator';
+import { ALL_ROLES, ROLE } from '../common/constants';
 
 @ApiTags('categories')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('categories')
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
   @Post()
-  @Roles('ADMIN')
+  @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Create a new category' })
   @ApiResponse({ status: 201, description: 'Category created' })
   @ApiResponse({ status: 409, description: 'Category name already exists' })
@@ -34,15 +31,15 @@ export class CategoriesController {
     return this.categoriesService.create(createCategoryDto);
   }
 
-  @Public()
+  @Roles(...ALL_ROLES)
   @Get()
   @ApiOperation({ summary: 'Get all categories' })
   @ApiResponse({ status: 200, description: 'Categories retrieved' })
-  findAll(@Query('status') status?: string) {
-    return this.categoriesService.findAll(status);
+  findAll(@Query() query: StatusQueryDto) {
+    return this.categoriesService.findAll(query.status);
   }
 
-  @Public()
+  @Roles(...ALL_ROLES)
   @Get(':id')
   @ApiOperation({ summary: 'Get a category by ID' })
   @ApiResponse({ status: 200, description: 'Category retrieved' })
@@ -52,7 +49,7 @@ export class CategoriesController {
   }
 
   @Patch(':id')
-  @Roles('ADMIN')
+  @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Update a category' })
   @ApiResponse({ status: 200, description: 'Category updated' })
   @ApiResponse({ status: 404, description: 'Category not found' })
@@ -61,7 +58,7 @@ export class CategoriesController {
   }
 
   @Delete(':id')
-  @Roles('ADMIN')
+  @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Delete a category' })
   @ApiResponse({ status: 200, description: 'Category deleted' })
   @ApiResponse({ status: 404, description: 'Category not found' })

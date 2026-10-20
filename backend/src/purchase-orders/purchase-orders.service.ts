@@ -1,107 +1,72 @@
 import {
-  Injectable,
-  NotFoundException,
   BadRequestException,
   ConflictException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
+import { Prisma, PurchaseOrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
-import { Prisma, PurchaseOrderStatus } from '@prisma/client';
+import { PurchaseOrderQueryDto } from './dto/purchase-order-query.dto';
+import { buildPage, dateRange, normalizePagination } from '../common/utils/pagination';
+import { monthPrefix, nextSequence, runInTransaction } from '../common/utils/transaction';
+
+const USER_SELECT = { id: true, fullName: true, email: true } as const;
+
+const DETAIL_INCLUDE = {
+  supplier: true,
+  creator: { select: USER_SELECT },
+  approver: { select: USER_SELECT },
+  items: { include: { product: { include: { category: true, brand: true } } } },
+} satisfies Prisma.PurchaseOrderInclude;
+
+type ItemInput = { productId: string; quantity: number; unitCost: number };
+
+/** Money maths in integer cents so totals never drift (0.1 + 0.2 problems). */
+const toCents = (value: number) => Math.round(value * 100);
+const fromCents = (cents: number) => cents / 100;
 
 @Injectable()
 export class PurchaseOrdersService {
   constructor(private prisma: PrismaService) {}
 
-  async create(createPurchaseOrderDto: CreatePurchaseOrderDto, userId: string) {
-    const { supplierId, expectedDate, items } = createPurchaseOrderDto;
+  async create(dto: CreatePurchaseOrderDto, userId: string) {
+    const items = this.assertUniqueItems(dto.items);
 
-    // Validate supplier exists
-    const supplier = await this.prisma.supplier.findUnique({
-      where: { id: supplierId },
-    });
-
-    if (!supplier) {
-      throw new NotFoundException('Supplier not found');
+    const supplier = await this.prisma.supplier.findUnique({ where: { id: dto.supplierId } });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+    if (supplier.status !== 'ACTIVE') {
+      throw new BadRequestException('Cannot raise a purchase order for an inactive supplier');
     }
+    await this.assertProductsOrderable(items);
 
-    // Validate all products exist and get their details
-    const productIds = items.map((item) => item.productId);
-    const products = await this.prisma.product.findMany({
-      where: {
-        id: { in: productIds },
-        status: 'ACTIVE',
-      },
-    });
+    const lines = this.buildLines(items);
+    const totalAmount = fromCents(lines.reduce((sum, l) => sum + toCents(l.totalCost), 0));
 
-    if (products.length !== productIds.length) {
-      throw new NotFoundException('One or more products not found or inactive');
-    }
+    return runInTransaction(this.prisma, async (tx) => {
+      const poNumber = await this.generatePONumber(tx);
 
-    // Generate PO number
-    const poNumber = await this.generatePONumber();
-
-    // Calculate total amount and prepare items
-    let totalAmount = 0;
-    const itemsData = items.map((item) => {
-      const product = products.find((p) => p.id === item.productId);
-      const totalCost = item.quantity * item.unitCost;
-      totalAmount += totalCost;
-
-      return {
-        productId: item.productId,
-        quantity: item.quantity,
-        unitCost: item.unitCost,
-        totalCost: totalCost,
-        receivedQuantity: 0,
-      };
-    });
-
-    // Create purchase order with items in a transaction
-    return this.prisma.$transaction(async (tx) => {
       const purchaseOrder = await tx.purchaseOrder.create({
         data: {
           poNumber,
-          supplierId,
+          supplierId: dto.supplierId,
           status: PurchaseOrderStatus.DRAFT,
-          orderDate: new Date(),
-          expectedDate: expectedDate ? new Date(expectedDate) : null,
+          expectedDate: dto.expectedDate ? new Date(dto.expectedDate) : null,
           createdById: userId,
           totalAmount,
-          items: {
-            create: itemsData,
-          },
+          items: { create: lines },
         },
-        include: {
-          supplier: true,
-          items: {
-            include: {
-              product: true,
-            },
-          },
-          creator: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-            },
-          },
-        },
+        include: DETAIL_INCLUDE,
       });
 
-      // Create audit log
       await tx.auditLog.create({
         data: {
           userId,
           action: 'PO_CREATE',
           entity: 'PurchaseOrder',
           entityId: purchaseOrder.id,
-          newValue: {
-            poNumber,
-            supplierId,
-            totalAmount,
-            itemCount: items.length,
-          },
+          newValue: { poNumber, supplierId: dto.supplierId, totalAmount, itemCount: lines.length },
         },
       });
 
@@ -109,36 +74,14 @@ export class PurchaseOrdersService {
     });
   }
 
-  async findAll(filters: {
-    supplierId?: string;
-    status?: string;
-    fromDate?: string;
-    toDate?: string;
-    page?: number;
-    limit?: number;
-  }) {
-    const { supplierId, status, fromDate, toDate, page = 1, limit = 20 } = filters;
-    const skip = (page - 1) * limit;
-
-    const where: any = {};
-
-    if (supplierId) {
-      where.supplierId = supplierId;
-    }
-
-    if (status) {
-      where.status = status;
-    }
-
-    if (fromDate || toDate) {
-      where.createdAt = {};
-      if (fromDate) {
-        where.createdAt.gte = new Date(fromDate);
-      }
-      if (toDate) {
-        where.createdAt.lte = new Date(toDate);
-      }
-    }
+  async findAll(query: PurchaseOrderQueryDto) {
+    const { page, limit, skip } = normalizePagination(query.page, query.limit);
+    const where: Prisma.PurchaseOrderWhereInput = {};
+    if (query.supplierId) where.supplierId = query.supplierId;
+    if (query.status) where.status = query.status;
+    if (query.search?.trim()) where.poNumber = { contains: query.search.trim(), mode: 'insensitive' };
+    const range = dateRange(query.fromDate, query.toDate);
+    if (range) where.createdAt = range;
 
     const [items, total] = await Promise.all([
       this.prisma.purchaseOrder.findMany({
@@ -148,395 +91,271 @@ export class PurchaseOrdersService {
         orderBy: { createdAt: 'desc' },
         include: {
           supplier: true,
-          creator: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-            },
-          },
-          approver: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-            },
-          },
-          _count: {
-            select: {
-              items: true,
-              goodsReceipts: true,
-            },
-          },
+          creator: { select: USER_SELECT },
+          approver: { select: USER_SELECT },
+          _count: { select: { items: true, goodsReceipts: true } },
         },
       }),
       this.prisma.purchaseOrder.count({ where }),
     ]);
 
-    return {
-      items,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-      hasNext: page * limit < total,
-      hasPrevious: page > 1,
-    };
+    return buildPage(items, total, page, limit);
   }
 
   async findOne(id: string) {
     const purchaseOrder = await this.prisma.purchaseOrder.findUnique({
       where: { id },
       include: {
-        supplier: true,
-        creator: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-          },
-        },
-        approver: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-          },
-        },
-        items: {
-          include: {
-            product: {
-              include: {
-                category: true,
-                brand: true,
-              },
-            },
-          },
-        },
+        ...DETAIL_INCLUDE,
         goodsReceipts: {
+          orderBy: { createdAt: 'desc' },
           include: {
-            receiver: {
-              select: {
-                id: true,
-                fullName: true,
-                email: true,
-              },
-            },
-            items: {
-              include: {
-                product: true,
-              },
-            },
+            location: true,
+            receiver: { select: USER_SELECT },
+            items: { include: { product: true } },
           },
         },
       },
     });
-
-    if (!purchaseOrder) {
-      throw new NotFoundException('Purchase order not found');
-    }
-
+    if (!purchaseOrder) throw new NotFoundException('Purchase order not found');
     return purchaseOrder;
   }
 
-  async submit(id: string, userId: string) {
-    const purchaseOrder = await this.prisma.purchaseOrder.findUnique({
-      where: { id },
-    });
-
-    if (!purchaseOrder) {
-      throw new NotFoundException('Purchase order not found');
-    }
-
-    if (purchaseOrder.status !== PurchaseOrderStatus.DRAFT) {
-      throw new BadRequestException(
-        `Cannot submit purchase order with status: ${purchaseOrder.status}`,
-      );
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.purchaseOrder.update({
-        where: { id },
-        data: {
-          status: PurchaseOrderStatus.SUBMITTED,
-        },
-        include: {
-          supplier: true,
-          items: {
-            include: {
-              product: true,
-            },
-          },
-        },
-      });
-
-      // Create audit log
-      await tx.auditLog.create({
-        data: {
-          userId,
-          action: 'PO_SUBMIT',
-          entity: 'PurchaseOrder',
-          entityId: id,
-          newValue: {
-            poNumber: updated.poNumber,
-            oldStatus: PurchaseOrderStatus.DRAFT,
-            newStatus: PurchaseOrderStatus.SUBMITTED,
-          },
-        },
-      });
-
-      return updated;
+  submit(id: string, userId: string) {
+    return this.transition(id, userId, {
+      from: [PurchaseOrderStatus.DRAFT],
+      to: PurchaseOrderStatus.SUBMITTED,
+      action: 'PO_SUBMIT',
+      verb: 'submit',
+      requireItems: true,
     });
   }
 
-  async approve(id: string, userId: string) {
-    const purchaseOrder = await this.prisma.purchaseOrder.findUnique({
-      where: { id },
-      include: {
-        items: true,
-      },
-    });
-
-    if (!purchaseOrder) {
-      throw new NotFoundException('Purchase order not found');
-    }
-
-    if (purchaseOrder.status !== PurchaseOrderStatus.SUBMITTED) {
-      throw new BadRequestException(
-        `Cannot approve purchase order with status: ${purchaseOrder.status}`,
-      );
-    }
-
-    // Check if PO has items
-    if (purchaseOrder.items.length === 0) {
-      throw new BadRequestException('Cannot approve purchase order with no items');
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.purchaseOrder.update({
-        where: { id },
-        data: {
-          status: PurchaseOrderStatus.APPROVED,
-          approvedById: userId,
-          approvedAt: new Date(),
-        },
-        include: {
-          supplier: true,
-          items: {
-            include: {
-              product: true,
-            },
-          },
-          approver: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true,
-            },
-          },
-        },
-      });
-
-      // Create audit log
-      await tx.auditLog.create({
-        data: {
-          userId,
-          action: 'PO_APPROVE',
-          entity: 'PurchaseOrder',
-          entityId: id,
-          newValue: {
-            poNumber: updated.poNumber,
-            oldStatus: PurchaseOrderStatus.SUBMITTED,
-            newStatus: PurchaseOrderStatus.APPROVED,
-            approvedBy: userId,
-          },
-        },
-      });
-
-      return updated;
+  approve(id: string, userId: string) {
+    return this.transition(id, userId, {
+      from: [PurchaseOrderStatus.SUBMITTED],
+      to: PurchaseOrderStatus.APPROVED,
+      action: 'PO_APPROVE',
+      verb: 'approve',
+      requireItems: true,
+      extra: { approvedById: userId, approvedAt: new Date() },
     });
   }
 
-  async cancel(id: string, userId: string) {
-    const purchaseOrder = await this.prisma.purchaseOrder.findUnique({
-      where: { id },
-    });
-
-    if (!purchaseOrder) {
-      throw new NotFoundException('Purchase order not found');
-    }
-
-    if (
-      purchaseOrder.status === PurchaseOrderStatus.RECEIVED ||
-      purchaseOrder.status === PurchaseOrderStatus.CANCELLED
-    ) {
-      throw new BadRequestException(
-        `Cannot cancel purchase order with status: ${purchaseOrder.status}`,
-      );
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.purchaseOrder.update({
-        where: { id },
-        data: {
-          status: PurchaseOrderStatus.CANCELLED,
-        },
-        include: {
-          supplier: true,
-          items: {
-            include: {
-              product: true,
-            },
-          },
-        },
-      });
-
-      // Create audit log
-      await tx.auditLog.create({
-        data: {
-          userId,
-          action: 'PO_CANCEL',
-          entity: 'PurchaseOrder',
-          entityId: id,
-          newValue: {
-            poNumber: updated.poNumber,
-            oldStatus: purchaseOrder.status,
-            newStatus: PurchaseOrderStatus.CANCELLED,
-          },
-        },
-      });
-
-      return updated;
+  cancel(id: string, userId: string) {
+    return this.transition(id, userId, {
+      from: [
+        PurchaseOrderStatus.DRAFT,
+        PurchaseOrderStatus.SUBMITTED,
+        PurchaseOrderStatus.APPROVED,
+        PurchaseOrderStatus.PARTIALLY_RECEIVED,
+      ],
+      to: PurchaseOrderStatus.CANCELLED,
+      action: 'PO_CANCEL',
+      verb: 'cancel',
     });
   }
 
-  async update(id: string, updatePurchaseOrderDto: UpdatePurchaseOrderDto) {
-    const purchaseOrder = await this.prisma.purchaseOrder.findUnique({
-      where: { id },
-    });
-
-    if (!purchaseOrder) {
-      throw new NotFoundException('Purchase order not found');
+  async update(id: string, dto: UpdatePurchaseOrderDto, userId: string) {
+    const existing = await this.prisma.purchaseOrder.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Purchase order not found');
+    if (existing.status !== PurchaseOrderStatus.DRAFT) {
+      throw new BadRequestException(`Only draft purchase orders can be edited. Current status: ${existing.status}`);
     }
 
-    if (purchaseOrder.status !== PurchaseOrderStatus.DRAFT) {
-      throw new BadRequestException(
-        `Cannot update purchase order with status: ${purchaseOrder.status}`,
-      );
-    }
-
-    // Validate supplier if changing
-    if (updatePurchaseOrderDto.supplierId) {
-      const supplier = await this.prisma.supplier.findUnique({
-        where: { id: updatePurchaseOrderDto.supplierId },
-      });
-
-      if (!supplier) {
-        throw new NotFoundException('Supplier not found');
+    if (dto.supplierId) {
+      const supplier = await this.prisma.supplier.findUnique({ where: { id: dto.supplierId } });
+      if (!supplier) throw new NotFoundException('Supplier not found');
+      if (supplier.status !== 'ACTIVE') {
+        throw new BadRequestException('Cannot use an inactive supplier');
       }
     }
 
-    const { items, expectedDate, supplierId } = updatePurchaseOrderDto;
-    const updateData: Prisma.PurchaseOrderUpdateInput = {};
-    if (supplierId) updateData.supplier = { connect: { id: supplierId } };
-    if (expectedDate) updateData.expectedDate = new Date(expectedDate);
+    const items = dto.items ? this.assertUniqueItems(dto.items) : undefined;
+    if (items) await this.assertProductsOrderable(items);
 
-    return this.prisma.$transaction(async (tx) => {
+    return runInTransaction(this.prisma, async (tx) => {
+      // Re-check the status atomically so a concurrent submit cannot be edited under.
+      const guard = await tx.purchaseOrder.updateMany({
+        where: { id, status: PurchaseOrderStatus.DRAFT },
+        data: {
+          ...(dto.supplierId ? { supplierId: dto.supplierId } : {}),
+          ...(dto.expectedDate ? { expectedDate: new Date(dto.expectedDate) } : {}),
+        },
+      });
+      if (guard.count === 0) {
+        throw new ConflictException('This purchase order is no longer a draft');
+      }
+
       if (items) {
-        const productIds = items.map((item) => item.productId);
-        const products = await tx.product.findMany({ where: { id: { in: productIds }, status: 'ACTIVE' } });
-        if (products.length !== productIds.length) {
-          throw new NotFoundException('One or more products not found or inactive');
-        }
-
+        const lines = this.buildLines(items);
         await tx.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: id } });
         await tx.purchaseOrderItem.createMany({
-          data: items.map((item) => ({
-            purchaseOrderId: id,
-            productId: item.productId,
-            quantity: item.quantity,
-            unitCost: item.unitCost,
-            totalCost: item.quantity * item.unitCost,
-            receivedQuantity: 0,
-          })),
+          data: lines.map((line) => ({ ...line, purchaseOrderId: id })),
         });
-        updateData.totalAmount = items.reduce((total, item) => total + item.quantity * item.unitCost, 0);
+        await tx.purchaseOrder.update({
+          where: { id },
+          data: { totalAmount: fromCents(lines.reduce((s, l) => s + toCents(l.totalCost), 0)) },
+        });
       }
 
-      return tx.purchaseOrder.update({
-        where: { id },
-        data: updateData,
-        include: { supplier: true, items: { include: { product: true } } },
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'PO_UPDATE',
+          entity: 'PurchaseOrder',
+          entityId: id,
+          newValue: {
+            poNumber: existing.poNumber,
+            supplierChanged: Boolean(dto.supplierId),
+            itemsReplaced: Boolean(items),
+          },
+        },
       });
+
+      return tx.purchaseOrder.findUniqueOrThrow({ where: { id }, include: DETAIL_INCLUDE });
     });
   }
 
-  async remove(id: string) {
+  async remove(id: string, userId: string) {
     const purchaseOrder = await this.prisma.purchaseOrder.findUnique({
       where: { id },
-      include: {
-        items: true,
-        goodsReceipts: true,
-      },
+      include: { goodsReceipts: { select: { id: true } } },
     });
-
-    if (!purchaseOrder) {
-      throw new NotFoundException('Purchase order not found');
-    }
-
+    if (!purchaseOrder) throw new NotFoundException('Purchase order not found');
     if (purchaseOrder.status !== PurchaseOrderStatus.DRAFT) {
-      throw new BadRequestException(
-        `Cannot delete purchase order with status: ${purchaseOrder.status}`,
-      );
+      throw new BadRequestException(`Only draft purchase orders can be deleted. Current status: ${purchaseOrder.status}`);
     }
-
     if (purchaseOrder.goodsReceipts.length > 0) {
-      throw new ConflictException('Cannot delete purchase order with associated goods receipts');
+      throw new ConflictException('Cannot delete a purchase order that has goods receipts');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      // Delete all items first
-      await tx.purchaseOrderItem.deleteMany({
-        where: { purchaseOrderId: id },
+    return runInTransaction(this.prisma, async (tx) => {
+      // Items first (FK), then the guarded parent delete. If the PO stopped being
+      // a draft in the meantime the throw below rolls the item delete back too.
+      await tx.purchaseOrderItem.deleteMany({ where: { purchaseOrderId: id } });
+      const removed = await tx.purchaseOrder.deleteMany({
+        where: { id, status: PurchaseOrderStatus.DRAFT },
       });
+      if (removed.count === 0) {
+        throw new ConflictException('This purchase order is no longer a draft');
+      }
 
-      // Delete the purchase order
-      return tx.purchaseOrder.delete({
-        where: { id },
-      });
-    });
-  }
-
-  async generatePONumber(): Promise<string> {
-    const year = new Date().getFullYear();
-    const month = String(new Date().getMonth() + 1).padStart(2, '0');
-
-    const count = await this.prisma.purchaseOrder.count({
-      where: {
-        poNumber: {
-          startsWith: `PO-${year}-${month}`,
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'PO_DELETE',
+          entity: 'PurchaseOrder',
+          entityId: id,
+          oldValue: { poNumber: purchaseOrder.poNumber },
         },
-      },
-    });
+      });
 
-    const sequence = String(count + 1).padStart(4, '0');
-    return `PO-${year}-${month}-${sequence}`;
+      return {
+        id,
+        poNumber: purchaseOrder.poNumber,
+        message: `Purchase order ${purchaseOrder.poNumber} deleted`,
+      };
+    });
   }
 
   async findApprovedPOs() {
     return this.prisma.purchaseOrder.findMany({
-      where: {
-        status: PurchaseOrderStatus.APPROVED,
-      },
-      include: {
-        supplier: true,
-        items: {
-          include: {
-            product: true,
-          },
-        },
-      },
+      where: { status: PurchaseOrderStatus.APPROVED },
+      include: { supplier: true, items: { include: { product: true } } },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  // ------------------------------------------------------------------
+
+  /** Atomic status transition: the UPDATE only matches when the PO is still in an allowed state. */
+  private async transition(
+    id: string,
+    userId: string,
+    opts: {
+      from: PurchaseOrderStatus[];
+      to: PurchaseOrderStatus;
+      action: string;
+      verb: string;
+      requireItems?: boolean;
+      extra?: Prisma.PurchaseOrderUpdateManyMutationInput & { approvedById?: string };
+    },
+  ) {
+    const current = await this.prisma.purchaseOrder.findUnique({
+      where: { id },
+      include: { _count: { select: { items: true } } },
+    });
+    if (!current) throw new NotFoundException('Purchase order not found');
+    if (!opts.from.includes(current.status)) {
+      throw new BadRequestException(`Cannot ${opts.verb} a purchase order with status ${current.status}`);
+    }
+    if (opts.requireItems && current._count.items === 0) {
+      throw new BadRequestException(`Cannot ${opts.verb} a purchase order with no items`);
+    }
+
+    return runInTransaction(this.prisma, async (tx) => {
+      const changed = await tx.purchaseOrder.updateMany({
+        where: { id, status: { in: opts.from } },
+        data: { status: opts.to, ...opts.extra },
+      });
+      if (changed.count === 0) {
+        throw new ConflictException('The purchase order status changed while you were working. Refresh and retry');
+      }
+
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: opts.action,
+          entity: 'PurchaseOrder',
+          entityId: id,
+          newValue: { poNumber: current.poNumber, oldStatus: current.status, newStatus: opts.to },
+        },
+      });
+
+      return tx.purchaseOrder.findUniqueOrThrow({ where: { id }, include: DETAIL_INCLUDE });
+    });
+  }
+
+  private assertUniqueItems(items: ItemInput[]): ItemInput[] {
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (seen.has(item.productId)) {
+        throw new BadRequestException('Each product may appear only once on a purchase order');
+      }
+      seen.add(item.productId);
+    }
+    return items;
+  }
+
+  private async assertProductsOrderable(items: ItemInput[]) {
+    const ids = items.map((i) => i.productId);
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: ids }, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (products.length !== ids.length) {
+      throw new NotFoundException('One or more products were not found or are not active');
+    }
+  }
+
+  private buildLines(items: ItemInput[]) {
+    return items.map((item) => ({
+      productId: item.productId,
+      quantity: item.quantity,
+      unitCost: item.unitCost,
+      totalCost: fromCents(item.quantity * toCents(item.unitCost)),
+      receivedQuantity: 0,
+    }));
+  }
+
+  private async generatePONumber(tx: Prisma.TransactionClient): Promise<string> {
+    const prefix = monthPrefix('PO');
+    const last = await tx.purchaseOrder.findFirst({
+      where: { poNumber: { startsWith: prefix } },
+      orderBy: { poNumber: 'desc' },
+      select: { poNumber: true },
+    });
+    return `${prefix}${String(nextSequence(last?.poNumber)).padStart(4, '0')}`;
   }
 }
