@@ -11,7 +11,8 @@ import { Button } from '../common/Buttons/Button'
 import { FormInput } from '../common/Forms/FormInput'
 import { FormSelect } from '../common/Forms/FormSelect'
 import { FormTextarea } from '../common/Forms/FormTextarea'
-import { formatNumber } from '../../utils/format-utils'
+import { formatMoney, formatNumber } from '../../utils/format-utils'
+import { usePermissions } from '../../hooks/usePermissions'
 import { getErrorMessage } from '../../utils/error-utils'
 import { MODE_META, type StockMode } from './stock-modes'
 import type { Product } from '../../types'
@@ -39,6 +40,8 @@ interface Props {
 export function StockActionForm({ mode, defaultProduct = null, defaultLocationId, lockProduct, onDone, onCancel }: Props) {
   const meta = MODE_META[mode]
   const qc = useQueryClient()
+  const { can } = usePermissions()
+  const showCost = can('cost:view')
   const [product, setProduct] = useState<Product | null>(defaultProduct)
   const [productError, setProductError] = useState<string>()
 
@@ -110,6 +113,14 @@ export function StockActionForm({ mode, defaultProduct = null, defaultLocationId
         label="Product" value={product} activeOnly={mode === 'in'} disabled={lockProduct || run.isPending}
         onChange={(p) => { setProduct(p); setProductError(undefined) }} error={productError}
       />
+
+      {product && (
+        <div className="grid gap-3 rounded-xl border border-line bg-surface-2/50 p-3 text-sm sm:grid-cols-3">
+          <div><p className="text-xs text-muted">Category</p><p className="font-medium">{product.category?.name ?? '-'}</p></div>
+          <div><p className="text-xs text-muted">Brand</p><p className="font-medium">{product.brand?.name ?? '-'}</p></div>
+          {showCost && <div><p className="text-xs text-muted">Price</p><p className="font-medium">{formatMoney(product.costPrice)}</p></div>}
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <FormSelect label="Location" required placeholder="Select location" options={locationOptions} error={errors.locationId?.message} {...register('locationId')} />

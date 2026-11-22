@@ -14,7 +14,7 @@ import { inventoryApi } from '../api/endpoints/inventory.api'
 import { locationsApi } from '../api/endpoints/locations.api'
 import { usePermissions } from '../hooks/usePermissions'
 import { usePageTitle } from '../hooks/usePageTitle'
-import { formatNumber } from '../utils/format-utils'
+import { formatMoney, formatNumber } from '../utils/format-utils'
 import type { InventoryBalance } from '../types'
 
 const LEVELS = [
@@ -42,9 +42,13 @@ export default function InventoryPage() {
 
   const record = can('stock:record')
   const adjust = can('stock:adjust')
+  const showCost = can('cost:view')
 
   const columns: Column<InventoryBalance>[] = [
     { key: 'product', header: 'Product', cell: (r) => <div className="min-w-[180px]"><p className="font-semibold">{r.product?.name}</p><p className="text-xs text-muted">{r.product?.sku}</p></div> },
+    { key: 'category', header: 'Category', hideBelow: 'lg', cell: (r) => r.product?.category?.name ?? '-' },
+    { key: 'brand', header: 'Brand', hideBelow: 'lg', cell: (r) => r.product?.brand?.name ?? '-' },
+    ...(showCost ? [{ key: 'price', header: 'Price', align: 'right' as const, hideBelow: 'lg' as const, cell: (r: InventoryBalance) => formatMoney(r.product?.costPrice) }] : []),
     { key: 'location', header: 'Location', hideBelow: 'md', cell: (r) => r.location?.name },
     { key: 'qty', header: 'On hand', align: 'right', cell: (r) => <span className="font-semibold tabular-nums">{formatNumber(r.quantity)}</span> },
     { key: 'reserved', header: 'Reserved', align: 'right', hideBelow: 'lg', cell: (r) => <span className="tabular-nums text-muted">{formatNumber(r.reservedQuantity)}</span> },

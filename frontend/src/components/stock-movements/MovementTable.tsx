@@ -1,13 +1,19 @@
 import { DataTable, type Column } from '../common/Table/DataTable'
 import { StatusBadge } from '../common/Badges/StatusBadge'
-import { formatDateTime, formatNumber } from '../../utils/format-utils'
+import { formatDateTime, formatMoney, formatNumber } from '../../utils/format-utils'
+import { usePermissions } from '../../hooks/usePermissions'
 import { movementDelta } from '../../utils/movement-utils'
 import type { StockMovement } from '../../types'
 
 export function MovementTable({ rows, isLoading, isError, onRetry, compact }: { rows: StockMovement[]; isLoading?: boolean; isError?: boolean; onRetry?: () => void; compact?: boolean }) {
+  const { can } = usePermissions()
+  const showCost = can('cost:view')
   const columns: Column<StockMovement>[] = [
     { key: 'when', header: 'When', cell: (m) => <span className="whitespace-nowrap text-muted">{formatDateTime(m.createdAt)}</span> },
     { key: 'product', header: 'Product', cell: (m) => <div className="min-w-[150px]"><p className="font-semibold">{m.product?.name ?? '-'}</p><p className="text-xs text-muted">{m.inventory?.location?.name ?? ''}</p></div> },
+    { key: 'category', header: 'Category', hideBelow: 'lg', cell: (m) => m.product?.category?.name ?? '-' },
+    { key: 'brand', header: 'Brand', hideBelow: 'lg', cell: (m) => m.product?.brand?.name ?? '-' },
+    ...(showCost ? [{ key: 'price', header: 'Price', align: 'right' as const, hideBelow: 'lg' as const, cell: (m: StockMovement) => formatMoney(m.product?.costPrice) }] : []),
     { key: 'type', header: 'Type', cell: (m) => <StatusBadge status={m.type} /> },
     {
       key: 'qty', header: 'Change', align: 'right',

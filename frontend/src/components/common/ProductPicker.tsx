@@ -4,7 +4,8 @@ import { Check, ChevronsUpDown, Loader2, Search } from 'lucide-react'
 import { clsx } from 'clsx'
 import { productsApi } from '../../api/endpoints/products.api'
 import { useDebounce } from '../../hooks/useDebounce'
-import { formatNumber } from '../../utils/format-utils'
+import { formatMoney, formatNumber } from '../../utils/format-utils'
+import { usePermissions } from '../../hooks/usePermissions'
 import type { Product } from '../../types'
 
 interface ProductPickerProps {
@@ -24,6 +25,8 @@ export function ProductPicker({ value, onChange, label, error, disabled, activeO
   const [open, setOpen] = useState(false)
   const [text, setText] = useState('')
   const [cursor, setCursor] = useState(0)
+  const { can } = usePermissions()
+  const showCost = can('cost:view')
   const search = useDebounce(text, 250)
   const wrapRef = useRef<HTMLDivElement>(null)
   const listId = useId()
@@ -70,6 +73,7 @@ export function ProductPicker({ value, onChange, label, error, disabled, activeO
           <span className="min-w-0">
             <span className="block truncate font-medium">{value.name}</span>
             <span className="block truncate text-xs text-muted">{value.sku}</span>
+            <span className="block truncate text-xs text-muted">{value.category?.name ?? 'No category'} · {value.brand?.name ?? 'No brand'}{showCost ? ` · ${formatMoney(value.costPrice)}` : ''}</span>
           </span>
           <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted" />
         </button>
@@ -115,7 +119,8 @@ export function ProductPicker({ value, onChange, label, error, disabled, activeO
             >
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium text-fg">{p.name}</span>
-                <span className="block truncate text-xs text-muted">{p.sku}{p.brand ? ` - ${p.brand.name}` : ''}</span>
+                <span className="block truncate text-xs text-muted">{p.sku}</span>
+                <span className="block truncate text-xs text-muted">{p.category?.name ?? 'No category'} · {p.brand?.name ?? 'No brand'}{showCost ? ` · ${formatMoney(p.costPrice)}` : ''}</span>
               </span>
               <span className="flex shrink-0 items-center gap-2 text-xs text-muted">
                 {p.availableQuantity !== undefined && <span>{formatNumber(p.availableQuantity)} in stock</span>}
