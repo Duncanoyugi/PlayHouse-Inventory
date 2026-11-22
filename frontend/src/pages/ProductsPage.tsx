@@ -103,8 +103,9 @@ export default function ProductsPage() {
 
   const columns: Column<Product>[] = [
     { key: 'name', header: 'Product', cell: (p) => <div className="min-w-[180px]"><p className="font-semibold">{p.name}</p><p className="text-xs text-muted">{p.sku}{p.barcode ? ` - ${p.barcode}` : ''}</p></div> },
-    { key: 'cat', header: 'Category', hideBelow: 'md', cell: (p) => <div><p>{p.category?.name ?? '-'}</p><p className="text-xs text-muted">{p.brand?.name ?? ''}</p></div> },
-    ...(showCost ? [{ key: 'cost', header: 'Cost', align: 'right' as const, hideBelow: 'lg' as const, cell: (p: Product) => formatMoney(p.costPrice) }] : []),
+    { key: 'category', header: 'Category', hideBelow: 'md', cell: (p) => p.category?.name ?? '-' },
+    { key: 'brand', header: 'Brand', hideBelow: 'md', cell: (p) => p.brand?.name ?? '-' },
+    ...(showCost ? [{ key: 'price', header: 'Price', align: 'right' as const, hideBelow: 'lg' as const, cell: (p: Product) => formatMoney(p.costPrice) }] : []),
     {
       key: 'stock', header: 'In stock', align: 'right',
       cell: (p) => {
